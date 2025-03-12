@@ -24,5 +24,5 @@
 /VR-URP/Temp/*
 /VR-URP/UserSettings/*
 /VR-URP/obj/*
-/VR-URP/Build/**
+/VR-URP/Builds/**
 /VR-URP/.vs/**
