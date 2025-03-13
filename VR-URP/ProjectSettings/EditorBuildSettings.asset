@@ -8,12 +8,16 @@ EditorBuildSettings:
   - enabled: 0
     path: Assets/Test.unity
     guid: ca13622d0f7f243a3a3020f3b8b0650f
-  - enabled: 1
+  - enabled: 0
     path: Assets/Demo.unity
     guid: d7db1c5e9e3bd1841b445942758be212
+  - enabled: 1
+    path: Assets/Scenes/FirstTry.unity
+    guid: 3c297f3f7f34a440fb7a8e77a22d0928
   m_configObjects:
     Unity.XR.Oculus.Settings: {fileID: 11400000, guid: b090be5d6637982448afcd52055a67a9, type: 2}
     Varjo.XR.Settings: {fileID: 11400000, guid: 0075bbd24aaad854b82bd8d4e209cee3, type: 2}
+    com.unity.input.settings.actions: {fileID: -944628639613478452, guid: dd8f6547ea55b8842ab7fd0208a3a0fc, type: 3}
     com.unity.xr.arfoundation.simulation_settings: {fileID: 11400000, guid: 44c22bf228d050345947b81be6fa46f3, type: 2}
     com.unity.xr.management.loader_settings: {fileID: 11400000, guid: 543125df2921e4a46bb88d4ee3edcbaa, type: 2}
     com.unity.xr.openxr.settings4: {fileID: 11400000, guid: 73788eea10aeb4a4496ee52542890eb8, type: 2}
