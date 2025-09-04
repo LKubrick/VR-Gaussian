@@ -1,0 +1,90 @@
+#pragma kernel CSMain
+
+RWTexture2D<float4> PosMapOut; //B8G8R8A8_UNORM from AVPro but transformed, somehow, in float4 ie 128bits
+RWTexture2D<float4> ColMapOut; //keep it for debug
+
+Texture2D<float4> PosMapRead;
+Texture2D<float4> ColMapRead;
+
+//RWTexture2D<uint> DepthMap;
+float4 O;
+float4 X;
+float4 Y;
+float4 Z;
+//float4 bBoxPivot;
+//float4 camPos;
+
+//float4x4 bBoxMat;
+
+int orthoWidth;
+int orthoHeight;
+int orthoDepth;
+
+float depthThrsld;
+//float scalarNormalLimit;
+//bool FlipNormalsComparator;
+bool Fusion;
+bool voxelized;
+//bool startNewFusion;
+
+[numthreads(8,8,1)]
+void CSMain (uint2 id : SV_DispatchThreadID)
+{
+
+    float pixelWidth = abs(distance(X, O)) / orthoWidth;
+    float pixelHeight = abs(distance(Y, O)) / orthoHeight;
+    float pixelDepth = abs(distance(Z, O)) / orthoDepth;
+    
+    //Normal calculation - Keijiro uses the 4th pixel before and after in x and y to make a cross product 
+ 
+    if (PosMapRead[id].z == 0)
+        return;
+    
+    if ((PosMapOut[id].w == 0))
+    {
+        ColMapOut[id] = ColMapRead[id];
+        PosMapOut[id] = PosMapRead[id];
+            // To reorninate X, Y and Z on the structured ortho voxel space
+        if (voxelized)
+            PosMapOut[id] = float4(id.x * pixelWidth, id.y * pixelHeight, floor(PosMapOut[id].z / pixelDepth) * pixelDepth, PosMapOut[id].w); //Check the Z calculations 
+            //DEBUG 
+            //ColMapOut[id] = float4(1, 0, 0, 1);
+        return;
+    }
+        
+        //If a out pixel was already filled in the process we check if the new read pixel z value is nearer than n*units (unit=pixelDepth).
+        //If yes we replace it cos we are only interested in the front values. 
+    else if (PosMapRead[id].z > 0
+        && PosMapRead[id].z < PosMapOut[id].z - abs(depthThrsld))
+    {
+        ColMapOut[id] = ColMapRead[id];
+        PosMapOut[id] = PosMapRead[id];
+        //ColMapOut[id] = float4(1, 0, 0, 1);
+            // To reorninate X, Y and Z on the structured ortho voxel space
+        if (voxelized)
+            PosMapOut[id] = float4(id.x * pixelWidth, id.y * pixelHeight, floor(PosMapOut[id].z / pixelDepth) * pixelDepth, PosMapOut[id].w);
+            //DEBUG 
+            //ColMapOut[uint2(idX, idY)] = float4(1, 0, 0, 1);
+        return;
+    }
+        
+        //Fusion case: the points arriving in the pixel grid are the nearests. The 2 points are near enough to be fused. 
+        //Weithed average based on the alpha coefficient
+    else if (Fusion == true && abs(PosMapOut[id].z - PosMapRead[id].z) < abs(depthThrsld)) // To be tested with US -Y
+            {
+                //ColMapOut[uint2(idX, idY)] = float4(1, 0, 0, 1);
+                ColMapOut[id] = float4((ColMapOut[id].xyz * PosMapOut[id].w +
+    ColMapRead[id].xyz * PosMapRead[id].w) / float(PosMapOut[id].w + PosMapRead[id].w),
+    (PosMapOut[id].w + PosMapRead[id].w) / 2.0);
+            
+                PosMapOut[id] = float4((PosMapOut[id].xyz * PosMapOut[id].w +
+    PosMapRead[id].xyz * PosMapRead[id].w) / float(PosMapOut[id].w + PosMapRead[id].w),
+    (PosMapOut[id].w + PosMapRead[id].w) / 2.0);
+            // To reorninate X, Y and Z on the structured ortho voxel space
+        if (voxelized)
+            PosMapOut[id] = float4(id.x * pixelWidth, id.y * pixelHeight, floor(PosMapOut[id].z / pixelDepth) * pixelDepth, PosMapOut[id].w);
+                return;
+
+            }
+              
+}

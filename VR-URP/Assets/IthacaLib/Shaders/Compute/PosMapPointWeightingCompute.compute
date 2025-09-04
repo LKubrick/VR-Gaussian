@@ -1,0 +1,75 @@
+#pragma kernel CSMain
+
+RWTexture2D<float4> PosMapIn; //B8G8R8A8_UNORM from AVPro but transformed, somehow, in float4 ie 128bits
+RWTexture2D<float4> ColMapIn;
+float depththrshld; //edge filter depth
+uint topthick; //top edge thickeness
+uint rightthick; //right edge thickness
+uint bottomthick;
+uint leftthick;
+float power;
+float topWeigh;
+float rightWeigh;
+float bottomWeigh;
+float leftWeigh;
+float priorCoef;
+
+bool visualize;
+
+
+[numthreads(8,8,1)]
+void CSMain (uint2 id : SV_DispatchThreadID)
+{
+    
+    topWeigh = leftWeigh = bottomWeigh = rightWeigh = 1;
+    
+    for (int k = 0; k < topthick; k++)
+    {
+        if ((abs(PosMapIn[uint2(id.x, id.y)].z - PosMapIn[uint2(id.x + k + 1, id.y)].z) > depththrshld) || (PosMapIn[uint2(id.x + k + 1, id.y)].w == 0))
+        {
+            topWeigh = float(k) / float(topthick - 1);
+            break;
+        }
+    }
+    
+    for (int i = 0; i < bottomthick; i++)
+    {
+        if ((abs(PosMapIn[uint2(id.x, id.y)].z - PosMapIn[uint2(id.x - i - 1, id.y)].z) > depththrshld) || (PosMapIn[uint2(id.x - i - 1, id.y)].w == 0))
+        {            
+            bottomWeigh = float(i) / float(bottomthick - 1);
+            break;
+        }
+    }
+    
+    for (int j = 0; j < rightthick; j++)
+    {
+        if ((abs(PosMapIn[uint2(id.x, id.y)].z - PosMapIn[uint2(id.x, id.y - j - 1)].z) > depththrshld) || (PosMapIn[uint2(id.x, id.y - j - 1)].w == 0))
+        {
+            rightWeigh = float(j) / float(rightthick - 1);
+            break;
+
+        }
+    }
+    
+    for (int l = 0; l < leftthick; l++)
+    {
+        if ((abs(PosMapIn[uint2(id.x, id.y)].z - PosMapIn[uint2(id.x, id.y + l + 1)].z) > depththrshld) || (PosMapIn[uint2(id.x, id.y + l + 1)].w == 0))
+        {
+            leftWeigh = float(l) / float(leftthick - 1);
+            break;
+        }
+    }
+    
+    if (PosMapIn[id].w != 0)
+    {
+        if (visualize)
+            ColMapIn[id] = float4(pow(topWeigh * leftWeigh * bottomWeigh * rightWeigh, power) * priorCoef, 0, 0, 1);
+        
+        else
+            PosMapIn[id] = float4(PosMapIn[id].x, PosMapIn[id].y, PosMapIn[id].z, pow(topWeigh * leftWeigh * bottomWeigh * rightWeigh, power)*priorCoef);
+        
+            
+    }
+
+    
+}

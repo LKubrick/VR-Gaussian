@@ -1,0 +1,882 @@
+#pragma kernel CSMain
+
+RWTexture2D<float4> PosMapOut; //B8G8R8A8_UNORM from AVPro but transformed, somehow, in float4 ie 128bits
+RWTexture2D<float4> ColMapOut; //keep it for debug
+RWTexture2D<uint> DepthMap;
+
+Texture2D<float4> PosMapRead;
+Texture2D<float4> ColMapRead;
+
+float4 O;
+float4 X;
+float4 Y;
+float4 Z;
+//float4 bBoxPivot;
+float4 camPos;
+
+float4x4 bBoxMat;
+
+int orthoWidth;
+int orthoHeight;
+int orthoDepth;
+
+int depthThrsld;
+float scalarNormalLimit;
+bool FlipNormalsComparator;
+bool Fusion;// in opposition to is preparing to fusion
+bool voxelized;
+
+int DebugPixelWidth;
+int DebugPixelHeight;
+int Thickness;
+//bool startNewFusion;
+
+
+
+//Not sure it works
+//uint OrderPreservingFloatMap(float value)
+//{
+//    uint uvalue = asuint(value);
+//    uint mask = -int(uvalue >> 31) | 0x80000000;
+//    return uvalue ^ mask;
+//}
+
+//float InverseOrderPreservingFloatMap(uint value)
+//{
+//    uint mask = ((value >> 31) - 1) | 0x80000000;
+//    return asfloat(value ^ mask);
+//}
+
+//groupshared uint sharedValue;
+//groupshared uint lds_max;
+
+//Calculate triangle area
+float ComputeTriangleArea(int2 p1, int2 p2, int2 p3)
+{
+    return float(abs(p1.x * (p2.y - p3.y) + p2.x * (p3.y - p1.y) + p3.x * (p1.y - p2.y)) * 0.5);
+}
+
+//Determine if a pixel (px, py) is inside the triangle
+bool IsInsideTriangle(uint2 P, uint2 A, uint2 B, uint2 C)
+{
+    //Method 1:
+    //// Calculate the area of the whole triangle
+    //float area = ComputeTriangleArea(A, B, C);
+
+    //// Calculate the sub areas formed by the pixel and the vertices of the triangle
+    //float area1 = ComputeTriangleArea(P, B, C);
+    //float area2 = ComputeTriangleArea(A, P, C);
+    //float area3 = ComputeTriangleArea(A, B, P);
+
+    //// If the sum of the sub areas equal the whole triangle, the pixel is inside the triangle
+    //return abs((area1 + area2 + area3) - area) < 1e-3;
+    
+    //Method 2: 
+    // Calculate the 2D cross product of vectors (B - A) and (P - A)
+    // The result indicates if P is on the left or right side of the line segment AB.
+    int cross1 = int((B.x - A.x)) * int((P.y - A.y)) - int((B.y - A.y)) * int((P.x - A.x));
+    // Calculate the 2D cross product of vectors (C - B) and (P - B)
+    // The result indicates if P is on the left or right side of the line segment BC.
+    int cross2 = int((C.x - B.x)) * int((P.y - B.y)) - int((C.y - B.y)) * int((P.x - B.x));
+    // Calculate the 2D cross product of vectors (A - C) and (P - C)
+    // The result indicates if P is on the left or right side of the line segment CA.
+    int cross3 = int((A.x - C.x)) * int((P.y - C.y)) - int((A.y - C.y)) * int((P.x - C.x));
+    
+     // Check if all cross products are non-negative or all are non-positive:
+    // - If all are non-negative, P is on the left side of each edge (counterclockwise order).
+    // - If all are non-positive, P is on the right side of each edge (clockwise order).
+    // Either case means P is inside the triangle.
+    return (cross1 <= 0 && cross2 <= 0 && cross3 <= 0);
+    //|| (cross1 >= 0 && cross2 >= 0 && cross3 >= 0);
+}
+
+// Calculate barycentric coordinates
+void ComputeBarycentricCoords(uint2 P, uint2 A, uint2 B, uint2 C, out float lambda1, out float lambda2, out float lambda3)
+{
+    // Sub-triangles area
+    float areaABC = ComputeTriangleArea(A, B, C);
+    float areaPBC = ComputeTriangleArea(P, B, C);
+    float areaPCA = ComputeTriangleArea(P, C, A);
+    float areaPAB = ComputeTriangleArea(P, A, B);
+    
+    //Barycentric weights
+    //if (areaABC > 0.05)
+    //    return;
+    //Area superior to 0
+    if (areaABC > 1e-3)
+    {
+        lambda1 = areaPBC / areaABC;
+        lambda2 = areaPCA / areaABC;
+        lambda3 = areaPAB / areaABC;
+    }
+    
+    //Point triangle
+    else if (A.x == B.x && A.x == C.x && A.y == B.y && A.y == C.y)
+    {
+        
+        lambda1 = 1;
+        lambda2 = 0;
+        lambda3 = 0;
+        
+    }
+    // Not finished line triangles cases missing
+    else
+    {
+        lambda1 = 0.334;
+        lambda2 = 0.333;
+        lambda3 = 0.333;
+    }
+    
+
+    
+}
+
+// Interpolate position and color
+void InterpolatePixelData(uint2 P, uint2 a, uint2 A, uint2 b, uint2 B,uint2 c, uint2 C, out float4 interpolatedPos, out float4 interpolatedColor)
+{
+    // Barycentric coordinates
+    float lambda1, lambda2, lambda3;
+    ComputeBarycentricCoords(P, A, B, C, lambda1, lambda2, lambda3);
+    
+    //DEBUG :
+    //ComputeBarycentricCoords(P, uint2(300, 350), uint2(450, 850), uint2(800, 500), lambda1, lambda2, lambda3);
+    
+    float4 relativePosition_a = float4(PosMapRead[a].xyz - O.xyz, PosMapRead[a].w); //-bBoxPivot.xyz
+    relativePosition_a = mul(bBoxMat, float4(relativePosition_a.xyz, PosMapRead[a].w)).xyzw;
+    float4 relativePosition_b = float4(PosMapRead[b].xyz - O.xyz, PosMapRead[b].w); //-bBoxPivot.xyz
+    relativePosition_b = mul(bBoxMat, float4(relativePosition_b.xyz, PosMapRead[b].w)).xyzw;
+    float4 relativePosition_c = float4(PosMapRead[c].xyz - O.xyz, PosMapRead[c].w); //-bBoxPivot.xyz
+    relativePosition_c = mul(bBoxMat, float4(relativePosition_c.xyz, PosMapRead[c].w)).xyzw;
+    
+
+   // Interpolate position (PosMap)
+    interpolatedPos = lambda1 * relativePosition_a + lambda2 * relativePosition_b + lambda3 * relativePosition_c;
+    
+    // Interpolate color (ColMap)
+    interpolatedColor = lambda1 * ColMapRead[a] + lambda2 * ColMapRead[b] + lambda3 * ColMapRead[c];
+    
+   
+
+}
+
+void DrawPosColLine(float4 colorA, float4 colorB, float4 positionA, float4 positionB, int2 pixelA, int2 pixelB)
+{
+    float pixelDepth = abs(distance(Z, O)) / orthoDepth;
+    // DDA calculation (B-A) // PB CAR le point B n'est pas du tout pris en compte.
+    float deltaX = pixelB.x - pixelA.x;
+    float deltaY = pixelB.y - pixelA.y;
+        
+        // A position
+    uint2 currentPosition = pixelA;
+        
+    float steps = round(max(abs(deltaX), abs(deltaY)));
+        
+    if (steps == 0)
+    {
+        if (((PosMapOut[currentPosition].w < 0.01) && (ColMapOut[currentPosition].w < 0.01))
+                            || ((PosMapOut[currentPosition].w > 0.01) && (ColMapOut[currentPosition].w > 0.01)
+                && (positionA.z < PosMapOut[currentPosition].z)))
+        {
+            ColMapOut[currentPosition] = colorA;
+            PosMapOut[currentPosition] = positionA;
+        }
+    }
+    // Loop through the steps and draw the line
+    else if (steps < 10000 && steps > 0) // To Avoid calculating with a too high steps value
+    {
+        float xIncrement = deltaX / steps;
+        float yIncrement = deltaY / steps;
+
+    // Initialize cpx and cpy with the start position
+        float cpx = currentPosition.x;
+        float cpy = currentPosition.y;
+
+    // Loop for drawing the line
+        for (int i = 0; i <= steps; i++)
+        {
+            float t = i / steps;
+            float4 interpolatedColor = lerp(colorA, colorB, t);
+            float4 interpolatedPosition = lerp(positionA, positionB, t);
+
+        // Calculate the integer pixel position based on rounded coordinates
+            int2 pixelPosition = int2(round(cpx), round(cpy));
+
+        // Check if the position can be updated
+            if (((PosMapOut[pixelPosition].w < 0.01) && (ColMapOut[pixelPosition].w < 0.01))
+                || ((PosMapOut[pixelPosition].w > 0.01) && (ColMapOut[pixelPosition].w > 0.01)
+                    && (interpolatedPosition.z < PosMapOut[pixelPosition].z - depthThrsld * pixelDepth)))
+            {
+                ColMapOut[pixelPosition] = interpolatedColor;
+                PosMapOut[pixelPosition] = interpolatedPosition;
+            }
+            else if (Fusion == true && abs(PosMapOut[pixelPosition].z - interpolatedPosition.z) < abs(depthThrsld * pixelDepth))
+            {
+                //ColMapOut[uint2(idX, idY)] = float4(1, 0, 0, 1);
+                ColMapOut[pixelPosition] = float4((ColMapOut[pixelPosition].xyz * PosMapOut[pixelPosition].w +
+    interpolatedColor.xyz * interpolatedPosition.w) / float(PosMapOut[pixelPosition].w + interpolatedPosition.w),
+    (PosMapOut[pixelPosition].w + interpolatedPosition.w) / 2.0);
+            
+                PosMapOut[pixelPosition] = float4((PosMapOut[pixelPosition].xyz * PosMapOut[pixelPosition].w +
+    interpolatedPosition.xyz * interpolatedPosition.w) / float(PosMapOut[pixelPosition].w + interpolatedPosition.w),
+    (PosMapOut[pixelPosition].w + interpolatedPosition.w) / 2.0);
+            // To reorninate X, Y and Z on the structured ortho voxel space
+                /*if (voxelized)
+                    PosMapOut[uint2(idX, idY)] = float4(idX * pixelWidth, idY * pixelHeight, PosMapOut[uint2(idX, idY)].z, PosMapOut[uint2(idX, idY)].w);
+                return;*/
+
+            }
+
+        // Update cpx and cpy for the next position
+            cpx += xIncrement;
+            cpy += yIncrement;
+        }
+    }
+}
+
+[numthreads(8,8,1)]
+void CSMain (uint2 id : SV_DispatchThreadID)
+{
+    if ((PosMapRead[id].w < 0.01)
+        && (PosMapRead[uint2(id.x + 1, id.y)].w < 0.01 //BR
+        && PosMapRead[uint2(id.x, id.y + 1)].w < 0.01 //TL
+        && PosMapRead[uint2(id.x + 1, id.y + 1)].w < 0.01)) //TR
+        return;
+    
+    int idXfromBottomLeft;
+    int idYfromBottomLeft;
+    
+    int idXfromBottomRight;
+    int idYfromBottomRight;
+    
+    int idXfromTopLeft;
+    int idYfromTopLeft;
+    
+    int idXfromTopRight;
+    int idYfromTopRight;
+    
+    //Change of coordinate system: inverse of rotation minus the projection Origin
+    
+    //calculate relativePosition for Bottom left pixel
+    float3 relativePositionBottomLeft = PosMapRead[id].xyz - O.xyz; //-bBoxPivot.xyz
+    relativePositionBottomLeft = mul(bBoxMat, float4(relativePositionBottomLeft.xyz, 1.0)).xyz;
+    
+    //calculate relativePosition for Bottom right pixel
+    float3 relativePositionBottomRight = PosMapRead[uint2(id.x + 1, id.y)].xyz - O.xyz; //-bBoxPivot.xyz
+    relativePositionBottomRight = mul(bBoxMat, float4(relativePositionBottomRight.xyz, 1.0)).xyz;
+    
+    //calculate relativePosition for Top left pixel
+    float3 relativePositionTopLeft = PosMapRead[uint2(id.x, id.y + 1)].xyz - O.xyz; //-bBoxPivot.xyz
+    relativePositionTopLeft = mul(bBoxMat, float4(relativePositionTopLeft.xyz, 1.0)).xyz;
+    
+    //calculate relativePosition for Top right pixel
+    float3 relativePositionTopRight = PosMapRead[uint2(id.x + 1, id.y + 1)].xyz - O.xyz; //-bBoxPivot.xyz
+    relativePositionTopRight = mul(bBoxMat, float4(relativePositionTopRight.xyz, 1.0)).xyz;
+    
+    float3 relativeCamPos = camPos.xyz - O.xyz;
+    //float3 relativeCamPos = float3(camPos.x - O.x,camPos.y - O.y, 0.5*Z.z - O.z);
+    //float3 relativeCamPos = ((X.xyz + Y.xyz - Z.xyz) - O.xyz) / 2; //looks really ok + camPos.xyz doesnt look necessary
+    //float3 relativeCamPos = ((X.xyz + Y.xyz - Z.xyz) - O.xyz) / 2;
+    //float3 relativeCamPos = O.xyz - (0.5 * (X.xyz + Y.xyz)) + camPos.xyz;
+    relativeCamPos = mul(bBoxMat, float4(relativeCamPos.xyz, 1.0)).xyz;
+    //relativeCamPos = float3(relativeCamPos.xy, -1); //solution simple pour ne pas avoir de retrecissement de l image projetee//Attention a la metrique -1000 si en Kinect Unit
+    //Calculate the pixel Width,Height and Depth
+    float pixelWidth = abs(distance(X, O)) / orthoWidth;
+    float pixelHeight = abs(distance(Y, O)) / orthoHeight;
+    float pixelDepth = abs(distance(Z, O)) / orthoDepth;
+    
+    //Normal calculation - Keijiro uses the 4th pixel before and after in x and y to make a cross product
+    
+    float3 normZaxis = normalize(Z.xyz - O.xyz);
+    float3 normRelativeCamPos = normalize(relativeCamPos);
+    
+    float3 p_x0 = PosMapRead[uint2(id.x - 4, id.y)].xyz - O.xyz;
+    //p_x0 = mul(bBoxMat, float4(p_x0.xyz, 1.0)).xyz;
+    float3 p_x1 = PosMapRead[uint2(id.x + 4, id.y)].xyz - O.xyz;
+    //p_x1 = mul(bBoxMat, float4(p_x1.xyz, 1.0)).xyz;
+    float3 p_y0 = PosMapRead[uint2(id.x, id.y - 4)].xyz - O.xyz;
+    //p_y0 = mul(bBoxMat, float4(p_y0.xyz, 1.0)).xyz;
+    float3 p_y1 = PosMapRead[uint2(id.x, id.y + 4)].xyz - O.xyz;
+    //p_y1 = mul(bBoxMat, float4(p_y1.xyz, 1.0)).xyz;
+    
+    float3 normal = normalize(cross(p_x1 - p_x0, p_y1 - p_y0)); //gave good results until now
+    
+    if (dot(normal, normZaxis) < scalarNormalLimit)
+        return;
+   
+    //For every pixel in a rectangle defined by the bottom left triangle we double check if it's part of this triangle
+
+        //Calculate the ID of the perspective texture (output) - solved the parametric equation between the line (relativePosition - relativeCamPos) and the Z plan (Z=0)
+    
+   //test to avoid crashing - Works around -1 ! dig into it
+    //if (relativeCamPos.z > -2)
+    //    relativeCamPos = float3(relativeCamPos.xy, -2);
+
+        idXfromBottomLeft = floor((relativePositionBottomLeft.x - (relativeCamPos - relativePositionBottomLeft).x * (relativePositionBottomLeft.z / (relativeCamPos - relativePositionBottomLeft).z)) / pixelWidth);
+        idYfromBottomLeft = floor((relativePositionBottomLeft.y - (relativeCamPos - relativePositionBottomLeft).y * (relativePositionBottomLeft.z / (relativeCamPos - relativePositionBottomLeft).z)) / pixelHeight);
+        uint2 IDfromBottomLeft = uint2(idXfromBottomLeft, idYfromBottomLeft);
+    
+        idXfromBottomRight = floor((relativePositionBottomRight.x - (relativeCamPos - relativePositionBottomRight).x * (relativePositionBottomRight.z / (relativeCamPos - relativePositionBottomRight).z)) / pixelWidth);
+        idYfromBottomRight = floor((relativePositionBottomRight.y - (relativeCamPos - relativePositionBottomRight).y * (relativePositionBottomRight.z / (relativeCamPos - relativePositionBottomRight).z)) / pixelHeight);
+        uint2 IDfromBottomRight = uint2(idXfromBottomRight, idYfromBottomRight);
+    
+        idXfromTopLeft = floor((relativePositionTopLeft.x - (relativeCamPos - relativePositionTopLeft).x * (relativePositionTopLeft.z / (relativeCamPos - relativePositionTopLeft).z)) / pixelWidth);
+        idYfromTopLeft = floor((relativePositionTopLeft.y - (relativeCamPos - relativePositionTopLeft).y * (relativePositionTopLeft.z / (relativeCamPos - relativePositionTopLeft).z)) / pixelHeight);
+        uint2 IDfromTopLeft = uint2(idXfromTopLeft, idYfromTopLeft);
+    
+        idXfromTopRight = floor((relativePositionTopRight.x - (relativeCamPos - relativePositionTopRight).x * (relativePositionTopRight.z / (relativeCamPos - relativePositionTopRight).z)) / pixelWidth);
+        idYfromTopRight = floor((relativePositionTopRight.y - (relativeCamPos - relativePositionTopRight).y * (relativePositionTopRight.z / (relativeCamPos - relativePositionTopRight).z)) / pixelHeight);
+        uint2 IDfromTopRight = uint2(idXfromTopRight, idYfromTopRight);
+    
+    //IDfromTopRight = IDfromTopLeft = IDfromBottomRight = IDfromBottomLeft; //no crash
+    //FromBottomLeftTriangle min and max coordinates to define a rectangle
+    
+        int minCoordFromBottomLeftTriangleX = int(min(min(IDfromBottomLeft.x, IDfromBottomRight.x), IDfromTopLeft.x));
+        int minCoordFromBottomLeftTriangleY = int(min(min(IDfromBottomLeft.y, IDfromBottomRight.y), IDfromTopLeft.y));
+        int2 minCoordFromBottomLeftTriangle = int2(minCoordFromBottomLeftTriangleX, minCoordFromBottomLeftTriangleY);
+
+        int maxCoordFromBottomLeftTriangleX = int(max(max(IDfromBottomLeft.x, IDfromBottomRight.x), IDfromTopLeft.x));
+        int maxCoordFromBottomLeftTriangleY = int(max(max(IDfromBottomLeft.y, IDfromBottomRight.y), IDfromTopLeft.y));
+        int2 maxCoordFromBottomLeftTriangle = int2(maxCoordFromBottomLeftTriangleX, maxCoordFromBottomLeftTriangleY);
+
+    //FromTopRightTriangle min and max coordinates to define a rectangle
+    
+        int minCoordFromTopRightTriangleX = min(min(IDfromBottomRight.x, IDfromTopRight.x), IDfromTopLeft.x);
+        int minCoordFromTopRightTriangleY = min(min(IDfromBottomRight.y, IDfromTopRight.y), IDfromTopLeft.y);
+        int2 minCoordFromTopRightTriangle = int2(minCoordFromTopRightTriangleX, minCoordFromTopRightTriangleY);
+
+        int maxCoordFromTopRightTriangleX = max(max(IDfromBottomRight.x, IDfromTopRight.x), IDfromTopLeft.x);
+        int maxCoordFromTopRightTriangleY = max(max(IDfromBottomRight.y, IDfromTopRight.y), IDfromTopLeft.y);
+        int2 maxCoordFromTopRightTriangle = int2(maxCoordFromTopRightTriangleX, maxCoordFromTopRightTriangleY);
+    
+    
+    int posMapOutWidth;
+    int posMapOutWeight;
+    PosMapOut.GetDimensions(posMapOutWidth, posMapOutWeight);
+    
+    //Check the projection limits, if too many errors it crashes
+    if ((minCoordFromBottomLeftTriangle.x < 0 || minCoordFromBottomLeftTriangle.y < 0 || maxCoordFromBottomLeftTriangle.x >= posMapOutWidth || maxCoordFromBottomLeftTriangle.y >= posMapOutWeight)
+    || (minCoordFromTopRightTriangle.x < 0 || minCoordFromTopRightTriangle.y < 0 || maxCoordFromTopRightTriangle.x >= posMapOutWidth || maxCoordFromTopRightTriangle.y >= posMapOutWeight))
+    {
+        return;
+    }
+
+    //WORKING METHOD//
+    //SINGLE TRIANGLE CASE - Bottom left triangle
+    if (PosMapRead[uint2(id.x, id.y)].w > 0.01
+        && PosMapRead[uint2(id.x + 1, id.y)].w > 0.01
+        && PosMapRead[uint2(id.x, id.y + 1)].w > 0.01
+        && PosMapRead[uint2(id.x + 1, id.y + 1)].w < 0.01)
+    {
+        [allow_uav_condition]
+        for (int idYbl = minCoordFromBottomLeftTriangle.y; idYbl <= maxCoordFromBottomLeftTriangle.y; idYbl++)
+        {[allow_uav_condition]
+            for (int idXbl = minCoordFromBottomLeftTriangle.x; idXbl <= maxCoordFromBottomLeftTriangle.x; idXbl++)
+            {
+                    //ColMapOut[uint2(idXbl, idYbl)] = float4(1, 0, 0, 1);
+            
+                if (IsInsideTriangle(uint2(idXbl, idYbl), IDfromBottomLeft, IDfromTopLeft, IDfromBottomRight))
+                {
+                //ColMapOut[uint2(idXbl, idYbl)] = float4(1, 0, 0, 1);
+   
+                //Calculate the value of the pixel based on the barycenter of the Bottom Left triangle for PosMap and ColMap
+                    float4 interpolatedPos;
+                    float4 interpolatedColor;
+                    InterpolatePixelData(uint2(idXbl, idYbl), id, IDfromBottomLeft,
+                    uint2(id.x + 1, id.y), IDfromBottomRight,
+                    uint2(id.x, id.y + 1), IDfromTopLeft, interpolatedPos, interpolatedColor);
+                
+                    //DEBUG 
+ 
+                    //PosMapOut[uint2(idXbl, idYbl)] = float4(relativePositionBottomLeft.xyz, PosMapRead[id].w);;
+                    //ColMapOut[uint2(idXbl, idYbl)] = ColMapRead[id];
+                //return;
+                        //if (dot(normal, normZaxis) > scalarNormalLimit && interpolatedPos.w > 0.01 && interpolatedPos.z != 0)
+                    [allow_uav_condition]
+                    for (int i = 0; i <= Thickness; i++)
+                    {[allow_uav_condition]
+                        for (int j = 0; j <= Thickness; j++)
+                        {
+                            
+                            uint2 pos = uint2(idXbl + i, idYbl + j);
+                            uint expected = 0;
+                            uint original;
+                            int newDepth = int(round(interpolatedPos.z * 1000));
+                            
+                            InterlockedCompareExchange(DepthMap[pos], expected, newDepth, original);
+
+                            if (original == 0)
+                            {
+                                PosMapOut[pos] = interpolatedPos;
+                                ColMapOut[pos] = interpolatedColor;
+                                //ColMapOut[pos] = float4(1, 0, 0, 1);
+                            }
+                            else
+                            {
+
+                                //uint newDepth = OrderPreservingFloatMap(interpolatedPos.z);
+                                
+                                int originalDepth;
+                                
+                                InterlockedMin(DepthMap[pos], newDepth, originalDepth);
+                                bool letsFuse = true;
+                                if (Fusion == false
+                                    && DepthMap[pos] == newDepth
+                                    //&& newDepth < originalDepth - abs(round(depthThrsld * pixelDepth * 1000))
+                                    )
+                                {
+                                    PosMapOut[pos] = interpolatedPos;
+                                    ColMapOut[pos] = interpolatedColor;
+                                    //ColMapOut[pos] = float4(1, 0, 0, 1);
+                                }
+                                else if (Fusion == true
+                                    //&& interpolatedPos.z < PosMapOut[pos].z - abs(round(depthThrsld * pixelDepth)))
+                                    && float(newDepth) < float(originalDepth - abs(round(depthThrsld * pixelDepth * 1000))))
+                                {
+                                    PosMapOut[pos] = interpolatedPos;
+                                    ColMapOut[pos] = interpolatedColor;
+                                    letsFuse = false;
+                                    //ColMapOut[pos] = float4(1, 0, 0, 1);
+                      
+                                }
+                                else if (Fusion == true && letsFuse == true
+                                    //&& abs(PosMapOut[pos].z - interpolatedPos.z) < abs(round(depthThrsld * pixelDepth))
+                                    && abs(originalDepth - newDepth) < abs(round(depthThrsld * pixelDepth * 1000)))
+                                {
+                                    float weightA = PosMapOut[pos].w;
+                                    float weightB = interpolatedPos.w;
+                                    float totalWeight = weightA + weightB;
+                                    float invTotalWeight = 1.0 / max(totalWeight, 1e-6);
+                                    //if (PosMapOut[pos].w > 0.5)
+                                    {
+            // Fusion des couleurs
+                                        ColMapOut[pos] = float4(
+                (ColMapOut[pos].xyz * weightA + interpolatedColor.xyz * weightB) * invTotalWeight,
+                totalWeight / 2.0
+            );
+                                        //ColMapOut[pos] = float4(1, 0, 0, 1);
+                                        //ColMapOut[pos] = float4(weightA / totalWeight, weightB / totalWeight, 0.0, 1.0);
+                                        
+            // Fusion des positions
+                                        PosMapOut[pos] = float4(
+                (PosMapOut[pos].xyz * weightA + interpolatedPos.xyz * weightB) * invTotalWeight,
+                totalWeight / 2.0
+            );
+                                    }
+                                }
+
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+    //     //BL - BR (Bottom left - Bottom Right)
+    
+    //    DrawPosColLine(ColMapRead[id], ColMapRead[uint2(id.x + 1, id.y)],
+    //float4(relativePositionBottomLeft.xyz, PosMapRead[id].w),
+    //float4(relativePositionBottomRight.xyz, PosMapRead[uint2(id.x + 1, id.y)].w),
+    //int2(IDfromBottomLeft), int2(IDfromBottomRight));
+    
+    // // --- BL - TL (BottomLeft - TopLeft) ---
+
+    //    DrawPosColLine(ColMapRead[id], ColMapRead[uint2(id.x, id.y + 1)],
+    //float4(relativePositionBottomLeft.xyz, PosMapRead[id].w),
+    //float4(relativePositionTopLeft.xyz, PosMapRead[uint2(id.x, id.y + 1)].w),
+    //int2(IDfromBottomLeft), int2(IDfromTopLeft));
+    
+    ////---TL - BR(TopLeft - BottomRight)-- -
+    
+    //    DrawPosColLine(ColMapRead[uint2(id.x, id.y + 1)], ColMapRead[uint2(id.x + 1, id.y)],
+    //float4(relativePositionTopLeft.xyz, PosMapRead[uint2(id.x, id.y + 1)].w),
+    //float4(relativePositionBottomRight.xyz, PosMapRead[uint2(id.x + 1, id.y)].w),
+    //int2(IDfromTopLeft), int2(IDfromBottomRight));
+        
+        return;
+    }
+
+       
+    //For every pixel in a rectangle defined by the top Right triangle we double check if it's part of this triangle
+    
+    //SINGLE TRIANGLE CASE - Top right triangle
+    
+    else if (PosMapRead[uint2(id.x, id.y + 1)].w > 0.001
+        && PosMapRead[uint2(id.x + 1, id.y + 1)].w > 0.001
+        && PosMapRead[uint2(id.x + 1, id.y)].w > 0.001
+        && PosMapRead[uint2(id.x, id.y)].w < 0.001
+        )
+    {
+        [allow_uav_condition]
+        for (int idYtr = minCoordFromTopRightTriangle.y; idYtr <= maxCoordFromTopRightTriangle.y; idYtr++)
+        {[allow_uav_condition]
+            for (int idXtr = minCoordFromTopRightTriangle.x; idXtr <= maxCoordFromTopRightTriangle.x; idXtr++)
+            {
+                        
+                //Draw the edges of the Top Right Triangle        
+                //ColMapOut[uint2(idXtr, idYtr)] = float4(1, 0, 0, 1);
+                if (IsInsideTriangle(uint2(idXtr, idYtr), IDfromTopLeft, IDfromTopRight, IDfromBottomRight))
+                {
+                    //ColMapOut[uint2(idXtr, idYtr)] = float4(1, 0, 0, 1);
+                //Calculate the value of the pixel based on the barycenter of the Top Right triangle for PosMap and ColMap
+                    float4 interpolatedPos;
+                    float4 interpolatedColor;
+                    InterpolatePixelData(uint2(idXtr, idYtr), uint2(id.x, id.y + 1), IDfromTopLeft,
+                    uint2(id.x + 1, id.y), IDfromBottomRight,
+                    uint2(id.x + 1, id.y + 1), IDfromTopRight, interpolatedPos, interpolatedColor);
+                    //DEBUG
+
+                    
+                //if (dot(normal, normZaxis) > scalarNormalLimit && interpolatedPos.w > 0.01)
+                {       //From time to time some pixels are missed supposely because we work on the inner pixels of the triangle
+                        [allow_uav_condition]
+                        for (int i = 0; i <= Thickness; i++)
+                        {
+                            [allow_uav_condition]
+                            for (int j = 0; j <= Thickness; j++)
+                            {
+                                uint2 pos = uint2(idXtr + i, idYtr + j);
+                                uint expected = 0;
+                                uint original;
+                                int newDepth = int(round(interpolatedPos.z * 1000));
+                                InterlockedCompareExchange(DepthMap[pos], expected, newDepth, original);
+
+                                if (original == 0)
+                                {
+                                    PosMapOut[pos] = interpolatedPos;
+                                    ColMapOut[pos] = interpolatedColor;
+                                    //ColMapOut[pos] = float4(1, 0, 0, 1);
+                                }
+                                else
+                                {
+                                        //uint newDepth = OrderPreservingFloatMap(interpolatedPos.z);
+                                    
+                                    int originalDepth;
+                                    bool letsFuse = true;
+                                    InterlockedMin(DepthMap[pos], newDepth, originalDepth);
+
+                                    if (Fusion == false
+                                        && DepthMap[pos] == newDepth
+                                        //&& newDepth < originalDepth - abs(round(depthThrsld * pixelDepth * 1000))
+                                        )
+                                    {
+                                        PosMapOut[pos] = interpolatedPos;
+                                        ColMapOut[pos] = interpolatedColor;
+                                        //ColMapOut[pos] = float4(1, 0, 0, 1);
+                                    }
+                                    else if (Fusion == true
+
+                                        //&& interpolatedPos.z < PosMapOut[pos].z - abs(round(depthThrsld * pixelDepth)))
+                                        && float(newDepth) < float(originalDepth - abs(round(depthThrsld * pixelDepth * 1000))))
+                                    {
+                                        PosMapOut[pos] = interpolatedPos;
+                                        ColMapOut[pos] = interpolatedColor;
+                                        letsFuse = false;
+                                        //ColMapOut[pos] = float4(1, 0, 0, 1);
+                                    }
+                                    else if (Fusion == true && letsFuse == true
+                                        //&& abs(PosMapOut[pos].z - interpolatedPos.z) < abs(round(depthThrsld * pixelDepth))
+                                        && abs(originalDepth - newDepth) < abs(round(depthThrsld * pixelDepth * 1000)))
+                                    {
+                                        float weightA = PosMapOut[pos].w;
+                                        float weightB = interpolatedPos.w;
+                                        float totalWeight = weightA + weightB;
+                                        float invTotalWeight = 1.0 / max(totalWeight, 1e-6);
+                                        //if (PosMapOut[pos].w > 0.5)
+                                        {
+            // Fusion des couleurs
+                                            ColMapOut[pos] =
+                                            float4((ColMapOut[pos].xyz * weightA + interpolatedColor.xyz * weightB) * invTotalWeight,
+                totalWeight / 2.0 // Possiblement impossible de diviser des triplets de floats ou indiquer float ou multiplier par l inverse ou un truc dans le style
+            );
+                                            //ColMapOut[pos] = float4(1, 0, 0, 1);
+                                            //ColMapOut[pos] = float4(weightA / totalWeight, weightB / totalWeight, 0.0, 1.0);
+            // Fusion des positions
+                                            PosMapOut[pos] =
+                                            float4((PosMapOut[pos].xyz * weightA + interpolatedPos.xyz * weightB) * invTotalWeight,
+                totalWeight / 2.0
+            );
+                                        }
+                                    }
+
+                                    
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    //    // --- BR - TR (BottomRight - TopRight) ---
+    
+    //    DrawPosColLine(ColMapRead[uint2(id.x + 1, id.y)], ColMapRead[uint2(id.x + 1, id.y + 1)],
+    //float4(relativePositionBottomRight.xyz, PosMapRead[uint2(id.x + 1, id.y)].w),
+    //float4(relativePositionTopRight.xyz, PosMapRead[uint2(id.x + 1, id.y + 1)].w),
+    //int2(IDfromBottomRight), int2(IDfromTopRight));
+    
+    //// --- TL - TR (TopLeft - TopRight) ---
+    //    DrawPosColLine(ColMapRead[uint2(id.x, id.y + 1)], ColMapRead[uint2(id.x + 1, id.y + 1)],
+    //float4(relativePositionTopLeft.xyz, PosMapRead[uint2(id.x, id.y + 1)].w),
+    //float4(relativePositionTopRight.xyz, PosMapRead[uint2(id.x + 1, id.y + 1)].w),
+    //int2(IDfromTopLeft), int2(IDfromTopRight));
+        
+    // //---TL - BR(TopLeft - BottomRight)-- -
+    
+    //    DrawPosColLine(ColMapRead[uint2(id.x, id.y + 1)], ColMapRead[uint2(id.x + 1, id.y)],
+    //float4(relativePositionTopLeft.xyz, PosMapRead[uint2(id.x, id.y + 1)].w),
+    //float4(relativePositionBottomRight.xyz, PosMapRead[uint2(id.x + 1, id.y)].w),
+    //int2(IDfromTopLeft), int2(IDfromBottomRight));
+        
+        return;
+    }
+        
+    //Both triangles 
+    
+    else if (PosMapRead[uint2(id.x, id.y)].w > 0
+        && PosMapRead[uint2(id.x + 1, id.y)].w > 0
+        && PosMapRead[uint2(id.x, id.y + 1)].w > 0
+        && PosMapRead[uint2(id.x + 1, id.y + 1)].w > 0)
+    {[allow_uav_condition]
+        for (int idYbl = minCoordFromBottomLeftTriangle.y; idYbl <= maxCoordFromBottomLeftTriangle.y; idYbl++)
+        {[allow_uav_condition]
+            for (int idXbl = minCoordFromBottomLeftTriangle.x; idXbl <= maxCoordFromBottomLeftTriangle.x; idXbl++)
+            {
+                    //ColMapOut[uint2(idXbl, idYbl)] = float4(1, 0, 0, 1);
+            
+                if (IsInsideTriangle(uint2(idXbl, idYbl), IDfromBottomLeft, IDfromTopLeft, IDfromBottomRight))
+                {
+                //ColMapOut[uint2(idXbl, idYbl)] = float4(1, 0, 0, 1);
+   
+                //Calculate the value of the pixel based on the barycenter of the Bottom Left triangle for PosMap and ColMap
+                    float4 interpolatedPos;
+                    float4 interpolatedColor;
+                    InterpolatePixelData(uint2(idXbl, idYbl), id, IDfromBottomLeft,
+                    uint2(id.x + 1, id.y), IDfromBottomRight,
+                    uint2(id.x, id.y + 1), IDfromTopLeft, interpolatedPos, interpolatedColor);
+                
+                    //DEBUG 
+ 
+                    //PosMapOut[uint2(idXbl, idYbl)] = float4(relativePositionBottomLeft.xyz, PosMapRead[id].w);;
+                    //ColMapOut[uint2(idXbl, idYbl)] = ColMapRead[id];
+                //return;
+                        //if (dot(normal, normZaxis) > scalarNormalLimit && interpolatedPos.w > 0.01 && interpolatedPos.z != 0)
+                    [allow_uav_condition]
+                    for (int i = 0; i <= Thickness; i++)
+                    {[allow_uav_condition]
+                        for (int j = 0; j <= Thickness; j++)
+                        {
+                            
+                            uint2 pos = uint2(idXbl + i, idYbl + j);
+                            uint expected = 0;
+                            uint original;
+                            int newDepth = int(round(interpolatedPos.z * 1000));
+                            
+                            InterlockedCompareExchange(DepthMap[pos], expected, newDepth, original);
+
+                            if (original == 0)
+                            {
+                                PosMapOut[pos] = interpolatedPos;
+                                ColMapOut[pos] = interpolatedColor;
+                                //ColMapOut[pos] = float4(1, 0, 0, 1);
+                            }
+                            else
+                            {
+
+                                //uint newDepth = OrderPreservingFloatMap(interpolatedPos.z);
+                                
+                                int originalDepth;
+                                
+                                InterlockedMin(DepthMap[pos], newDepth, originalDepth);
+                                bool letsFuse = true;
+                                if (Fusion == false
+                                    && DepthMap[pos] == newDepth
+                                    //&& newDepth < originalDepth - abs(round(depthThrsld * pixelDepth * 1000))
+                                    )
+                                {
+                                    PosMapOut[pos] = interpolatedPos;
+                                    ColMapOut[pos] = interpolatedColor;
+                                    //ColMapOut[pos] = float4(1, 0, 0, 1);
+                                }
+                                else if (Fusion == true
+                                    //&& interpolatedPos.z < PosMapOut[pos].z - abs(round(depthThrsld * pixelDepth)))
+                                    && float(newDepth) < float(originalDepth - abs(round(depthThrsld * pixelDepth * 1000))))
+                                {
+                                    PosMapOut[pos] = interpolatedPos;
+                                    ColMapOut[pos] = interpolatedColor;
+                                    letsFuse = false;
+                                    //ColMapOut[pos] = float4(1, 0, 0, 1);
+                      
+                                }
+                                else if (Fusion == true && letsFuse == true
+                                    //&& abs(PosMapOut[pos].z - interpolatedPos.z) < abs(round(depthThrsld * pixelDepth))
+                                    && abs(originalDepth - newDepth) < abs(round(depthThrsld * pixelDepth * 1000)))
+                                {
+                                    float weightA = PosMapOut[pos].w;
+                                    float weightB = interpolatedPos.w;
+                                    float totalWeight = weightA + weightB;
+                                    float invTotalWeight = 1.0 / max(totalWeight, 1e-6);
+                                    //if (PosMapOut[pos].w > 0.5)
+                                    {
+            // Fusion des couleurs
+                                        ColMapOut[pos] = float4(
+                (ColMapOut[pos].xyz * weightA + interpolatedColor.xyz * weightB) * invTotalWeight,
+                totalWeight / 2.0
+            );
+                                        //ColMapOut[pos] = float4(1, 0, 0, 1);
+                                        //ColMapOut[pos] = float4(weightA / totalWeight, weightB / totalWeight, 0.0, 1.0);
+                                        
+            // Fusion des positions
+                                        PosMapOut[pos] = float4(
+                (PosMapOut[pos].xyz * weightA + interpolatedPos.xyz * weightB) * invTotalWeight,
+                totalWeight / 2.0
+            );
+                                    }
+                                }
+
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        [allow_uav_condition]
+        for (int idYtr = minCoordFromTopRightTriangle.y; idYtr <= maxCoordFromTopRightTriangle.y; idYtr++)
+        {[allow_uav_condition]
+            for (int idXtr = minCoordFromTopRightTriangle.x; idXtr <= maxCoordFromTopRightTriangle.x; idXtr++)
+            {
+                        
+                //Draw the edges of the Top Right Triangle        
+                //ColMapOut[uint2(idXtr, idYtr)] = float4(1, 0, 0, 1);
+                if (IsInsideTriangle(uint2(idXtr, idYtr), IDfromTopLeft, IDfromTopRight, IDfromBottomRight))
+                {
+                    //ColMapOut[uint2(idXtr, idYtr)] = float4(1, 0, 0, 1);
+                //Calculate the value of the pixel based on the barycenter of the Top Right triangle for PosMap and ColMap
+                    float4 interpolatedPos;
+                    float4 interpolatedColor;
+                    InterpolatePixelData(uint2(idXtr, idYtr), uint2(id.x, id.y + 1), IDfromTopLeft,
+                    uint2(id.x + 1, id.y), IDfromBottomRight,
+                    uint2(id.x + 1, id.y + 1), IDfromTopRight, interpolatedPos, interpolatedColor);
+                    //DEBUG
+
+                    
+                //if (dot(normal, normZaxis) > scalarNormalLimit && interpolatedPos.w > 0.01)
+                {       //From time to time some pixels are missed supposely because we work on the inner pixels of the triangle
+                        [allow_uav_condition]
+                        for (int i = 0; i <= Thickness; i++)
+                        {
+                            [allow_uav_condition]
+                            for (int j = 0; j <= Thickness; j++)
+                            {
+                                uint2 pos = uint2(idXtr + i, idYtr + j);
+                                uint expected = 0;
+                                uint original;
+                                int newDepth = int(round(interpolatedPos.z * 1000));
+                                InterlockedCompareExchange(DepthMap[pos], expected, newDepth, original);
+
+                                if (original == 0)
+                                {
+                                    PosMapOut[pos] = interpolatedPos;
+                                    ColMapOut[pos] = interpolatedColor;
+                                    //ColMapOut[pos] = float4(1, 0, 0, 1);
+                                }
+                                else
+                                {
+                                        //uint newDepth = OrderPreservingFloatMap(interpolatedPos.z);
+                                    
+                                    int originalDepth;
+                                    bool letsFuse = true;
+                                    InterlockedMin(DepthMap[pos], newDepth, originalDepth);
+
+                                    if (Fusion == false
+                                        && DepthMap[pos] == newDepth
+                                        //&& newDepth < originalDepth - abs(round(depthThrsld * pixelDepth * 1000))
+                                        )
+                                    {
+                                        PosMapOut[pos] = interpolatedPos;
+                                        ColMapOut[pos] = interpolatedColor;
+                                        //ColMapOut[pos] = float4(1, 0, 0, 1);
+                                    }
+                                    else if (Fusion == true
+
+                                        //&& interpolatedPos.z < PosMapOut[pos].z - abs(round(depthThrsld * pixelDepth)))
+                                        && float(newDepth) < float(originalDepth - abs(round(depthThrsld * pixelDepth * 1000))))
+                                    {
+                                        PosMapOut[pos] = interpolatedPos;
+                                        ColMapOut[pos] = interpolatedColor;
+                                        letsFuse = false;
+                                        //ColMapOut[pos] = float4(1, 0, 0, 1);
+                                    }
+                                    else if (Fusion == true && letsFuse == true
+                                        //&& abs(PosMapOut[pos].z - interpolatedPos.z) < abs(round(depthThrsld * pixelDepth))
+                                        && abs(originalDepth - newDepth) < abs(round(depthThrsld * pixelDepth * 1000)))
+                                    {
+                                        float weightA = PosMapOut[pos].w;
+                                        float weightB = interpolatedPos.w;
+                                        float totalWeight = weightA + weightB;
+                                        float invTotalWeight = 1.0 / max(totalWeight, 1e-6);
+                                        //if (PosMapOut[pos].w > 0.5)
+                                        {
+            // Fusion des couleurs
+                                            ColMapOut[pos] =
+                                            float4((ColMapOut[pos].xyz * weightA + interpolatedColor.xyz * weightB) * invTotalWeight,
+                totalWeight / 2.0 // Possiblement impossible de diviser des triplets de floats ou indiquer float ou multiplier par l inverse ou un truc dans le style
+            );
+                                            //ColMapOut[pos] = float4(1, 0, 0, 1);
+                                            //ColMapOut[pos] = float4(weightA / totalWeight, weightB / totalWeight, 0.0, 1.0);
+            // Fusion des positions
+                                            PosMapOut[pos] =
+                                            float4((PosMapOut[pos].xyz * weightA + interpolatedPos.xyz * weightB) * invTotalWeight,
+                totalWeight / 2.0
+            );
+                                        }
+                                    }
+
+                                    
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return;
+    // //BL - BR (Bottom left - Bottom Right)
+    
+    //    DrawPosColLine(ColMapRead[id], ColMapRead[uint2(id.x + 1, id.y)],
+    //float4(relativePositionBottomLeft.xyz, PosMapRead[id].w),
+    //float4(relativePositionBottomRight.xyz, PosMapRead[uint2(id.x + 1, id.y)].w),
+    //int2(IDfromBottomLeft), int2(IDfromBottomRight));
+    
+    // // --- BL - TL (BottomLeft - TopLeft) ---
+
+    //    DrawPosColLine(ColMapRead[id], ColMapRead[uint2(id.x, id.y + 1)],
+    //float4(relativePositionBottomLeft.xyz, PosMapRead[id].w),
+    //float4(relativePositionTopLeft.xyz, PosMapRead[uint2(id.x, id.y + 1)].w),
+    //int2(IDfromBottomLeft), int2(IDfromTopLeft));
+    
+    ////---TL - BR(TopLeft - BottomRight)-- -
+    
+    //    DrawPosColLine(ColMapRead[uint2(id.x, id.y + 1)], ColMapRead[uint2(id.x + 1, id.y)],
+    //float4(relativePositionTopLeft.xyz, PosMapRead[uint2(id.x, id.y + 1)].w),
+    //float4(relativePositionBottomRight.xyz, PosMapRead[uint2(id.x + 1, id.y)].w),
+    //int2(IDfromTopLeft), int2(IDfromBottomRight));
+        
+    //// --- BR - TR (BottomRight - TopRight) ---
+    
+    //    DrawPosColLine(ColMapRead[uint2(id.x + 1, id.y)], ColMapRead[uint2(id.x + 1, id.y + 1)],
+    //float4(relativePositionBottomRight.xyz, PosMapRead[uint2(id.x + 1, id.y)].w),
+    //float4(relativePositionTopRight.xyz, PosMapRead[uint2(id.x + 1, id.y + 1)].w),
+    //int2(IDfromBottomRight), int2(IDfromTopRight));
+    
+    //// --- TL - TR (TopLeft - TopRight) ---
+    //    DrawPosColLine(ColMapRead[uint2(id.x, id.y + 1)], ColMapRead[uint2(id.x + 1, id.y + 1)],
+    //float4(relativePositionTopLeft.xyz, PosMapRead[uint2(id.x, id.y + 1)].w),
+    //float4(relativePositionTopRight.xyz, PosMapRead[uint2(id.x + 1, id.y + 1)].w),
+    //int2(IDfromTopLeft), int2(IDfromTopRight));
+        
+        
+    }
+    
+
+}
+
+

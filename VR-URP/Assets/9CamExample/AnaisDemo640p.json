@@ -1,0 +1,619 @@
+{
+    "warning": "ContextManager is in an early ALPHA version. All parameters could be lost when a new version arrives. A JSON copy of the parameters of a scene is automatically saved (at Start) in LocalDataFolder/SavedContext/ for backup, just in case. But backwards compatibility is not guaranteed at this stage.",
+    "AppConfig": {
+        "LocalDataFolder": "",
+        "XYTableFolder": "",
+        "Sequence": "",
+        "mkvPathOverride": "",
+        "AlignFolder": "",
+        "AlignBaseName": "",
+        "ActiveCameras": [
+            9,
+            6,
+            7,
+            0,
+            1,
+            4,
+            5,
+            2,
+            3
+        ],
+        "CommonTransformMatrix": {
+            "e00": 0.0,
+            "e01": 0.0,
+            "e02": 0.0,
+            "e03": 0.0,
+            "e10": 0.0,
+            "e11": 0.0,
+            "e12": 0.0,
+            "e13": 0.0,
+            "e20": 0.0,
+            "e21": 0.0,
+            "e22": 0.0,
+            "e23": 0.0,
+            "e30": 0.0,
+            "e31": 0.0,
+            "e32": 0.0,
+            "e33": 0.0
+        },
+        "CommonDepthInColorEncoding": {
+            "Method": 0,
+            "Parameters": ""
+        },
+        "Version": 1
+    },
+    "CamConfigs": [
+        {
+            "UserAssignedCameraIndex": 0,
+            "SerialNumber": "000605393812",
+            "DeviceState": 4,
+            "Model": 0,
+            "DepthInColorEncoding": {
+                "Method": 3,
+                "Parameters": "-es 300 -em 1"
+            },
+            "alignmentMatrix": {
+                "e00": 0.004466354846954346,
+                "e01": -0.9964390397071838,
+                "e02": 0.0841979831457138,
+                "e03": -0.06554383039474487,
+                "e10": 0.9995452761650086,
+                "e11": 0.006959497928619385,
+                "e12": 0.029340138658881189,
+                "e13": 1.3211915493011475,
+                "e20": -0.02982163615524769,
+                "e21": 0.08402864634990692,
+                "e22": 0.9960169792175293,
+                "e23": -0.6176195740699768,
+                "e30": 0.0,
+                "e31": 0.0,
+                "e32": 0.0,
+                "e33": 1.0
+            },
+            "alignmentMatrixPath": "alignMatrix3.json",
+            "exportScale": 0,
+            "projectonScreenWidth": 0.0,
+            "projectonScreenHeight": 0.0,
+            "screenCameraDistance": 0.0,
+            "layout": {
+                "color": {
+                    "orig": {
+                        "x": 640,
+                        "y": 576
+                    },
+                    "res": {
+                        "width": 640,
+                        "height": 576
+                    }
+                },
+                "depth": {
+                    "orig": {
+                        "x": 0,
+                        "y": 576
+                    },
+                    "res": {
+                        "width": 640,
+                        "height": 576
+                    }
+                }
+            },
+            "Version": 3,
+            "DeviceIndex": 0,
+            "CameraAlias": "",
+            "NearClip": 0,
+            "FarClip": 20000000
+        },
+        {
+            "UserAssignedCameraIndex": 1,
+            "SerialNumber": "000172924512",
+            "DeviceState": 4,
+            "Model": 0,
+            "DepthInColorEncoding": {
+                "Method": 3,
+                "Parameters": "-es 300 -em 1"
+            },
+            "alignmentMatrix": {
+                "e00": 0.0026857852935791017,
+                "e01": -0.9999613761901856,
+                "e02": -0.008364386856555939,
+                "e03": 0.09553512930870056,
+                "e10": 0.9761435985565186,
+                "e11": 0.004437625408172607,
+                "e12": -0.21708066761493684,
+                "e13": 0.7067416310310364,
+                "e20": 0.21710941195487977,
+                "e21": -0.0075818151235580448,
+                "e22": 0.9761178493499756,
+                "e23": -0.6978599429130554,
+                "e30": 0.0,
+                "e31": 0.0,
+                "e32": 0.0,
+                "e33": 1.0
+            },
+            "alignmentMatrixPath": "alignMatrix4.json",
+            "exportScale": 0,
+            "projectonScreenWidth": 0.0,
+            "projectonScreenHeight": 0.0,
+            "screenCameraDistance": 0.0,
+            "layout": {
+                "color": {
+                    "orig": {
+                        "x": 1920,
+                        "y": 576
+                    },
+                    "res": {
+                        "width": 640,
+                        "height": 576
+                    }
+                },
+                "depth": {
+                    "orig": {
+                        "x": 1280,
+                        "y": 576
+                    },
+                    "res": {
+                        "width": 640,
+                        "height": 576
+                    }
+                }
+            },
+            "Version": 3,
+            "DeviceIndex": 0,
+            "CameraAlias": "",
+            "NearClip": 0,
+            "FarClip": 20000000
+        },
+        {
+            "UserAssignedCameraIndex": 2,
+            "SerialNumber": "000402115212",
+            "DeviceState": 4,
+            "Model": 0,
+            "DepthInColorEncoding": {
+                "Method": 3,
+                "Parameters": "-es 1000 -em 1"
+            },
+            "alignmentMatrix": {
+                "e00": -0.0421137809753418,
+                "e01": -0.7014609575271606,
+                "e02": 0.7114624977111816,
+                "e03": -1.164797067642212,
+                "e10": 0.9947600364685059,
+                "e11": 0.03695952892303467,
+                "e12": 0.09532302618026734,
+                "e13": 0.7175142765045166,
+                "e20": -0.0931607186794281,
+                "e21": 0.7117488980293274,
+                "e22": 0.6962288618087769,
+                "e23": -0.8936923742294312,
+                "e30": 0.0,
+                "e31": 0.0,
+                "e32": 0.0,
+                "e33": 1.0
+            },
+            "alignmentMatrixPath": "alignMatrix7.json",
+            "exportScale": 0,
+            "projectonScreenWidth": 0.0,
+            "projectonScreenHeight": 0.0,
+            "screenCameraDistance": 0.0,
+            "layout": {
+                "color": {
+                    "orig": {
+                        "x": 1920,
+                        "y": 1152
+                    },
+                    "res": {
+                        "width": 640,
+                        "height": 576
+                    }
+                },
+                "depth": {
+                    "orig": {
+                        "x": 1280,
+                        "y": 1152
+                    },
+                    "res": {
+                        "width": 640,
+                        "height": 576
+                    }
+                }
+            },
+            "Version": 3,
+            "DeviceIndex": 0,
+            "CameraAlias": "",
+            "NearClip": 0,
+            "FarClip": 20000000
+        },
+        {
+            "UserAssignedCameraIndex": 3,
+            "SerialNumber": "000201924512",
+            "DeviceState": 4,
+            "Model": 0,
+            "DepthInColorEncoding": {
+                "Method": 3,
+                "Parameters": "-es 1000 -em 1"
+            },
+            "alignmentMatrix": {
+                "e00": 0.29280906915664675,
+                "e01": -0.04141244292259216,
+                "e02": 0.9552737474441528,
+                "e03": -1.649303674697876,
+                "e10": 0.9550449848175049,
+                "e11": 0.06113666296005249,
+                "e12": -0.2900886535644531,
+                "e13": 1.5935373306274415,
+                "e20": -0.046388983726501468,
+                "e21": 0.9972699880599976,
+                "e22": 0.05745208263397217,
+                "e23": 0.032634079456329349,
+                "e30": 0.0,
+                "e31": 0.0,
+                "e32": 0.0,
+                "e33": 1.0
+            },
+            "alignmentMatrixPath": "alignMatrix8.json",
+            "exportScale": 0,
+            "projectonScreenWidth": 0.0,
+            "projectonScreenHeight": 0.0,
+            "screenCameraDistance": 0.0,
+            "layout": {
+                "color": {
+                    "orig": {
+                        "x": 3200,
+                        "y": 1152
+                    },
+                    "res": {
+                        "width": 640,
+                        "height": 576
+                    }
+                },
+                "depth": {
+                    "orig": {
+                        "x": 2560,
+                        "y": 1152
+                    },
+                    "res": {
+                        "width": 640,
+                        "height": 576
+                    }
+                }
+            },
+            "Version": 3,
+            "DeviceIndex": 0,
+            "CameraAlias": "",
+            "NearClip": 0,
+            "FarClip": 20000000
+        },
+        {
+            "UserAssignedCameraIndex": 4,
+            "SerialNumber": "000128320312",
+            "DeviceState": 4,
+            "Model": 0,
+            "DepthInColorEncoding": {
+                "Method": 3,
+                "Parameters": "-es 1000 -em 1"
+            },
+            "alignmentMatrix": {
+                "e00": -0.25746405124664309,
+                "e01": 0.8559749126434326,
+                "e02": -0.44835183024406435,
+                "e03": 0.4948113369941711,
+                "e10": 0.8856474161148071,
+                "e11": 0.02347320318222046,
+                "e12": -0.4637647271156311,
+                "e13": 1.6365162134170533,
+                "e20": -0.38644668459892275,
+                "e21": -0.5164843201637268,
+                "e22": -0.7641355991363525,
+                "e23": 1.4470910835266114,
+                "e30": 0.0,
+                "e31": 0.0,
+                "e32": 0.0,
+                "e33": 1.0
+            },
+            "alignmentMatrixPath": "alignMatrix5.json",
+            "exportScale": 0,
+            "projectonScreenWidth": 0.0,
+            "projectonScreenHeight": 0.0,
+            "screenCameraDistance": 0.0,
+            "layout": {
+                "color": {
+                    "orig": {
+                        "x": 3200,
+                        "y": 576
+                    },
+                    "res": {
+                        "width": 640,
+                        "height": 576
+                    }
+                },
+                "depth": {
+                    "orig": {
+                        "x": 2560,
+                        "y": 576
+                    },
+                    "res": {
+                        "width": 640,
+                        "height": 576
+                    }
+                }
+            },
+            "Version": 3,
+            "DeviceIndex": 0,
+            "CameraAlias": "",
+            "NearClip": 0,
+            "FarClip": 20000000
+        },
+        {
+            "UserAssignedCameraIndex": 5,
+            "SerialNumber": "000509794612",
+            "DeviceState": 4,
+            "Model": 0,
+            "DepthInColorEncoding": {
+                "Method": 3,
+                "Parameters": "-es 1000 -em 1"
+            },
+            "alignmentMatrix": {
+                "e00": 0.19995665550231934,
+                "e01": 0.7926467061042786,
+                "e02": 0.575958788394928,
+                "e03": -1.033285140991211,
+                "e10": 0.9313514828681946,
+                "e11": 0.028804481029510499,
+                "e12": -0.36298033595085146,
+                "e13": 1.5486568212509156,
+                "e20": -0.30430537462234499,
+                "e21": 0.6090003848075867,
+                "e22": -0.7324731349945068,
+                "e23": 1.2463047504425049,
+                "e30": 0.0,
+                "e31": 0.0,
+                "e32": 0.0,
+                "e33": 1.0
+            },
+            "alignmentMatrixPath": "alignMatrix6.json",
+            "exportScale": 0,
+            "projectonScreenWidth": 0.0,
+            "projectonScreenHeight": 0.0,
+            "screenCameraDistance": 0.0,
+            "layout": {
+                "color": {
+                    "orig": {
+                        "x": 640,
+                        "y": 1152
+                    },
+                    "res": {
+                        "width": 640,
+                        "height": 576
+                    }
+                },
+                "depth": {
+                    "orig": {
+                        "x": 0,
+                        "y": 1152
+                    },
+                    "res": {
+                        "width": 640,
+                        "height": 576
+                    }
+                }
+            },
+            "Version": 3,
+            "DeviceIndex": 0,
+            "CameraAlias": "",
+            "NearClip": 0,
+            "FarClip": 20000000
+        },
+        {
+            "UserAssignedCameraIndex": 6,
+            "SerialNumber": "000237220312",
+            "DeviceState": 4,
+            "Model": 0,
+            "DepthInColorEncoding": {
+                "Method": 3,
+                "Parameters": "-es 1100 -em 1"
+            },
+            "alignmentMatrix": {
+                "e00": -0.44811010360717776,
+                "e01": -0.03388261795043945,
+                "e02": -0.8933360576629639,
+                "e03": 1.4818432331085206,
+                "e10": 0.892365574836731,
+                "e11": -0.0769510269165039,
+                "e12": -0.44470465183258059,
+                "e13": 1.6766575574874879,
+                "e20": -0.05367535352706909,
+                "e21": -0.9964590072631836,
+                "e22": 0.06471824645996094,
+                "e23": 0.293642520904541,
+                "e30": 0.0,
+                "e31": 0.0,
+                "e32": 0.0,
+                "e33": 1.0
+            },
+            "alignmentMatrixPath": "alignMatrix1.json",
+            "exportScale": 0,
+            "projectonScreenWidth": 0.0,
+            "projectonScreenHeight": 0.0,
+            "screenCameraDistance": 0.0,
+            "layout": {
+                "color": {
+                    "orig": {
+                        "x": 1920,
+                        "y": 0
+                    },
+                    "res": {
+                        "width": 640,
+                        "height": 576
+                    }
+                },
+                "depth": {
+                    "orig": {
+                        "x": 1280,
+                        "y": 0
+                    },
+                    "res": {
+                        "width": 640,
+                        "height": 576
+                    }
+                }
+            },
+            "Version": 3,
+            "DeviceIndex": 0,
+            "CameraAlias": "",
+            "NearClip": 0,
+            "FarClip": 20000000
+        },
+        {
+            "UserAssignedCameraIndex": 7,
+            "SerialNumber": "000615293812",
+            "DeviceState": 4,
+            "Model": 0,
+            "DepthInColorEncoding": {
+                "Method": 3,
+                "Parameters": "-es 500 -em 1"
+            },
+            "alignmentMatrix": {
+                "e00": 0.035788536071777347,
+                "e01": -0.7579943537712097,
+                "e02": -0.6512787342071533,
+                "e03": 1.0515708923339844,
+                "e10": 0.9988637566566467,
+                "e11": 0.006607651710510254,
+                "e12": 0.047198474407196048,
+                "e13": 0.83961021900177,
+                "e20": -0.03147265315055847,
+                "e21": -0.6522278189659119,
+                "e22": 0.7573693990707398,
+                "e23": -0.706218421459198,
+                "e30": 0.0,
+                "e31": 0.0,
+                "e32": 0.0,
+                "e33": 1.0
+            },
+            "alignmentMatrixPath": "alignMatrix2.json",
+            "exportScale": 0,
+            "projectonScreenWidth": 0.0,
+            "projectonScreenHeight": 0.0,
+            "screenCameraDistance": 0.0,
+            "layout": {
+                "color": {
+                    "orig": {
+                        "x": 3200,
+                        "y": 0
+                    },
+                    "res": {
+                        "width": 640,
+                        "height": 576
+                    }
+                },
+                "depth": {
+                    "orig": {
+                        "x": 2560,
+                        "y": 0
+                    },
+                    "res": {
+                        "width": 640,
+                        "height": 576
+                    }
+                }
+            },
+            "Version": 3,
+            "DeviceIndex": 0,
+            "CameraAlias": "",
+            "NearClip": 0,
+            "FarClip": 20000000
+        },
+        {
+            "UserAssignedCameraIndex": 9,
+            "SerialNumber": "000540594612",
+            "DeviceState": 4,
+            "Model": 0,
+            "DepthInColorEncoding": {
+                "Method": 3,
+                "Parameters": "-es 300 -em 1"
+            },
+            "alignmentMatrix": {
+                "e00": 0.1333787441253662,
+                "e01": 0.9774683713912964,
+                "e02": -0.16360247135162354,
+                "e03": -0.03601512312889099,
+                "e10": -0.02880251407623291,
+                "e11": -0.16118454933166505,
+                "e12": -0.9865039587020874,
+                "e13": 2.3930931091308595,
+                "e20": -0.9906466007232666,
+                "e21": 0.13629081845283509,
+                "e22": 0.006654918193817139,
+                "e23": 0.1558026671409607,
+                "e30": 0.0,
+                "e31": 0.0,
+                "e32": 0.0,
+                "e33": 1.0
+            },
+            "alignmentMatrixPath": "alignMatrix0.json",
+            "exportScale": 0,
+            "projectonScreenWidth": 0.0,
+            "projectonScreenHeight": 0.0,
+            "screenCameraDistance": 0.0,
+            "layout": {
+                "color": {
+                    "orig": {
+                        "x": 640,
+                        "y": 0
+                    },
+                    "res": {
+                        "width": 640,
+                        "height": 576
+                    }
+                },
+                "depth": {
+                    "orig": {
+                        "x": 0,
+                        "y": 0
+                    },
+                    "res": {
+                        "width": 640,
+                        "height": 576
+                    }
+                }
+            },
+            "Version": 3,
+            "DeviceIndex": 0,
+            "CameraAlias": "",
+            "NearClip": 0,
+            "FarClip": 20000000
+        }
+    ],
+    "Version": 1,
+    "LocalDataFolder": "",
+    "XYTableFolder": "",
+    "Sequence": "",
+    "AlignFolder": "",
+    "AlignBaseName": "",
+    "CommonTransformMatrix": {
+        "e00": 0.0,
+        "e01": 0.0,
+        "e02": 0.0,
+        "e03": 0.0,
+        "e10": 0.0,
+        "e11": 0.0,
+        "e12": 0.0,
+        "e13": 0.0,
+        "e20": 0.0,
+        "e21": 0.0,
+        "e22": 0.0,
+        "e23": 0.0,
+        "e30": 0.0,
+        "e31": 0.0,
+        "e32": 0.0,
+        "e33": 0.0
+    },
+    "CommonDepthInColorEncoding": {
+        "Method": 0,
+        "Parameters": ""
+    },
+    "FusionConfig": {
+        "exportType": 0,
+        "virtualCamConfigs": []
+    }
+}

@@ -1,0 +1,125 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: bbb281ee3bf0b054c82ac2347e9e782c, type: 3}
+  m_Name: IthacaPlayer
+  m_EditorClassIdentifier: 
+  m_GroupName: IthacaPlayer
+  m_Data:
+    m_SerializedData: []
+  m_GUID: 77e371c014353854d8ee3e54a45cfa2a
+  m_SerializeEntries:
+  - m_GUID: 0f06260a76186cd49a8370cbb3f54155
+    m_Address: SurfaceMat
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 2c3a27a1570dc164aa9b579cee837421
+    m_Address: PosMapPointWeightingComputeAndroid
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 35c2d3f3ec0b68744b2cd5b5a9a4819e
+    m_Address: PosMapToMatPosMapAndroid
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 4603e65492110be48aaef521a3eb9c22
+    m_Address: PosMapPointWeightingCompute
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 5a7ee5dd8836ed44a9115976a783865a
+    m_Address: PerspDensifier
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 64c80fa941983294ebd18e10033d4123
+    m_Address: TemporalNoiseRemoverCompute
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 6655406c1c294b647955eec8b27c2554
+    m_Address: combinedToPCForVfx-androidgamma
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 75d2753836bf02346ba5f63533092f13
+    m_Address: PosColNormalizer
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 7ede14d3f6b966d4eb20b32e608b9853
+    m_Address: PerspDensifierAndroid
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 7eee984c14202ae4d9d43ea652b6ccf8
+    m_Address: PosMapToMatPosMap
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 87864a91e373e8a48ae9e78ea10cf592
+    m_Address: PointCloudGraphs-FullOptions
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 8bd32d479520875459f63269809a3920
+    m_Address: Texture3DVoxelFusionCompute
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 9952b66fb9dee7944a13ccdf2971b7d8
+    m_Address: PosColNormalizerAndroid
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 9c90efadefc15134589c8da01995fc1c
+    m_Address: Texture3DMaterial
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 9d1db97936e76814388c9d8b1bed7777
+    m_Address: PosMapEdgesFilterAndroid
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: a015dc60841dc1f4fa5693afc3f29019
+    m_Address: Texture3D
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: a6ac02835cc228f41ba9e6869283d1d0
+    m_Address: PerspFusion
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: ab6e18ef4f9c24a4bad526d2975a020a
+    m_Address: AntiAliasingFilter
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: c354243e941a897468be5459f53bd64a
+    m_Address: PerspFusionAndroid
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: e02ede455d640c24586fb028b6ccce31
+    m_Address: PosMapEdgesFilter
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  m_ReadOnly: 0
+  m_Settings: {fileID: 11400000, guid: b9a973b62e752364b88c465da75131ed, type: 2}
+  m_SchemaSet:
+    m_Schemas:
+    - {fileID: 11400000, guid: 9f3d729683ea33e4e9ebf116e4dfa110, type: 2}
+    - {fileID: 11400000, guid: 16250cc1a5839af40a4c37076aac8652, type: 2}

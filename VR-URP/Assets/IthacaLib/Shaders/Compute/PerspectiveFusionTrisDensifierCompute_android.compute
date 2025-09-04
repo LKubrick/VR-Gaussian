@@ -1,0 +1,543 @@
+#pragma kernel CSMain
+
+RWTexture2D<float4> PosMapOut; //B8G8R8A8_UNORM from AVPro but transformed, somehow, in float4 ie 128bits
+RWTexture2D<float4> ColMapOut; //keep it for debug
+RWTexture2D<uint> DepthMap;
+
+Texture2D<float4> PosMapRead;
+Texture2D<float4> ColMapRead;
+
+float4 O;
+float4 X;
+float4 Y;
+float4 Z;
+//float4 bBoxPivot;
+float4 camPos;
+
+float4x4 bBoxMat;
+
+int orthoWidth;
+int orthoHeight;
+int orthoDepth;
+
+int depthThrsld;
+float scalarNormalLimit;
+bool FlipNormalsComparator;
+bool voxelized;
+
+int DebugPixelWidth;
+int DebugPixelHeight;
+int Thickness;
+//bool startNewFusion;
+
+
+
+//Marche tres bien, peut etre optimisable
+void DrawPosColLine(float4 colorA, float4 colorB, float4 positionA, float4 positionB, int2 pixelA, int2 pixelB)
+{
+    float pixelDepth = abs(distance(Z, O)) / orthoDepth;
+  
+    // DDA calculation (B-A)
+    int deltaX = pixelB.x - pixelA.x;
+    int deltaY = pixelB.y - pixelA.y;
+    
+    // Calculate the number of steps
+    int steps = max(abs(deltaX), abs(deltaY));
+    steps = min(steps, 1000); // Avoid too high steps value
+    
+    if (steps == 0)
+    {
+        // Handle single pixel case
+        uint expected = 0;
+        uint original;
+        uint newDepth = int(floor(positionA.z * 1000));
+        InterlockedCompareExchange(DepthMap[pixelA], expected, newDepth, original);
+        
+        if (original == 0)
+        {
+            ColMapOut[pixelA] = colorA;
+            PosMapOut[pixelA] = positionA;
+            //ColMapOut[pixelA] = float4(1, 0, 0, 1);
+            return;
+        }
+        else
+        {
+            uint originalDepth;
+            InterlockedMin(DepthMap[pixelA], newDepth, originalDepth);
+            
+            if (DepthMap[pixelA] == newDepth)
+            {
+                PosMapOut[pixelA] = positionA;
+                ColMapOut[pixelA] = colorA;
+                //ColMapOut[pixelA] = float4(1, 0, 0, 1);
+                return;
+            }
+        }
+    }
+    else if (steps > 0) 
+    {
+        // Calculate increments
+        float xIncrement = float(deltaX) / steps;
+        float yIncrement = float(deltaY) / steps;
+        
+        // Initialize current position
+        float cpx = pixelA.x;
+        float cpy = pixelA.y;
+
+        // Loop for drawing the line
+        for (int i = 0; i < steps; i++)
+        {
+            float t = float(i) / steps;
+            float4 interpolatedColor = lerp(colorA, colorB, t);
+            float4 interpolatedPosition = lerp(positionA, positionB, t);
+            
+            // Calculate the integer pixel position
+            int2 pixelPosition = int2(floor(cpx), floor(cpy));
+            uint expected = 0;
+            uint original;
+            uint newDepth = int(floor(interpolatedPosition.z * 1000));
+            InterlockedCompareExchange(DepthMap[pixelPosition], expected, newDepth, original);
+            
+                if (original == 0)
+                {
+                    ColMapOut[pixelPosition] = interpolatedColor;
+
+                    PosMapOut[pixelPosition] = interpolatedPosition;
+                }
+                else
+                {
+                    uint originalDepth;
+                    InterlockedMin(DepthMap[pixelPosition], newDepth, originalDepth);
+                
+                    if (DepthMap[pixelPosition] == newDepth)
+                    {
+                        ColMapOut[pixelPosition] = interpolatedColor;
+
+                        PosMapOut[pixelPosition] = interpolatedPosition;
+                    }
+                }
+            
+            // Update current position
+                cpx += xIncrement;
+                //cpy += yIncrement; //useless in our case cos we re drawing line with constant Y
+            }
+        }
+}
+
+
+//#define SWAP(a, b, type) { type tmp = a; a = b; b = tmp; }
+
+void Swap(inout int2 a, inout int2 b)
+{
+    int2 tmp = a;
+    a = b;
+    b = tmp;
+}
+
+void Swap(inout float4 a, inout float4 b)
+{
+    float4 tmp = a;
+    a = b;
+    b = tmp;
+}
+void FillTrianglePosCol(float4 colorA, float4 colorB, float4 colorC,
+                        float4 positionA, float4 positionB, float4 positionC,
+                        int2 pixelA, int2 pixelB, int2 pixelC)
+{
+    // Trier les points par coordonnee Y croissante (pixelA en bas, pixelC en haut)
+    if (pixelA.y > pixelB.y)
+    {
+        Swap(pixelA, pixelB);
+        Swap(positionA, positionB);
+        Swap(colorA, colorB);
+    }
+    if (pixelA.y > pixelC.y)
+    {
+        Swap(pixelA, pixelC);
+        Swap(positionA, positionC);
+        Swap(colorA, colorC);
+    }
+    if (pixelB.y > pixelC.y)
+    {
+        Swap(pixelB, pixelC);
+        Swap(positionB, positionC);
+        Swap(colorB, colorC);
+    }
+    
+    if (abs(pixelA.y - pixelC.y) > 1000)
+        return;
+    
+    // Verifier si le triangle est reduit a une ligne
+    if (pixelA.y == pixelC.y)
+    {
+        DrawPosColLine(colorA, colorC, positionA, positionC, pixelA, pixelC);
+        //DrawPosColLine(float4(1, 0, 0, 1), float4(1, 0, 0, 1), positionA, positionC, pixelA, pixelC);
+        return;
+    }
+
+    int dyAC = pixelC.y - pixelA.y;
+    int dyAB = pixelB.y - pixelA.y;
+    int dyBC = pixelC.y - pixelB.y;
+    
+    int2 leftEdge, rightEdge;
+    float4 leftPos, rightPos;
+    float4 leftCol, rightCol;
+    
+    // Gerer le cas d'un triangle plat en haut
+    if (pixelB.y == pixelC.y)
+    {
+        float inv_dyAC = 1.0 / (float) dyAC;
+        float inv_dyAB = 1.0 / (float) dyAB;
+
+        for (int y = pixelA.y; y < pixelC.y; y++)
+        {
+            float factorAC = (y - pixelA.y) * inv_dyAC;
+            float factorAB = (y - pixelA.y) * inv_dyAB;
+
+            leftEdge = mad((pixelC - pixelA), factorAC, pixelA);
+            rightEdge = mad((pixelB - pixelA), factorAB, pixelA);
+
+            leftPos = mad((positionC - positionA), factorAC, positionA);
+            rightPos = mad((positionB - positionA), factorAB, positionA);
+
+            leftCol = mad((colorC - colorA), factorAC, colorA);
+            rightCol = mad((colorB - colorA), factorAB, colorA);
+
+            if (leftEdge.x > rightEdge.x)
+            {
+                Swap(leftEdge, rightEdge);
+                Swap(leftPos, rightPos);
+                Swap(leftCol, rightCol);
+            }
+
+            DrawPosColLine(leftCol, rightCol, leftPos, rightPos, leftEdge, rightEdge);
+        //DrawPosColLine(float4(0, 1, 0, 1), float4(0, 1, 0, 1), leftPos, rightPos, leftEdge, rightEdge);
+        }
+        return;
+    }
+
+    //if (pixelB.y == pixelC.y)
+    //{
+    //    for (int y = pixelA.y; y < pixelC.y; y++)
+    //    {
+    //        leftEdge = pixelA + (pixelC - pixelA) * (y - pixelA.y) / dyAC;
+    //        rightEdge = pixelA + (pixelB - pixelA) * (y - pixelA.y) / dyAB;
+    //        leftPos = positionA + (positionC - positionA) * (y - pixelA.y) / dyAC;
+    //        rightPos = positionA + (positionB - positionA) * (y - pixelA.y) / dyAB;
+    //        leftCol = colorA + (colorC - colorA) * (y - pixelA.y) / dyAC;
+    //        rightCol = colorA + (colorB - colorA) * (y - pixelA.y) / dyAB;
+            
+    //        if (leftEdge.x > rightEdge.x)
+    //        {
+    //            Swap(leftEdge, rightEdge);
+    //            Swap(leftPos, rightPos);
+    //            Swap(leftCol, rightCol);
+    //        }
+    //        DrawPosColLine(leftCol, rightCol, leftPos, rightPos, leftEdge, rightEdge);
+    //        //DrawPosColLine(float4(0, 1, 0, 1), float4(0, 1, 0, 1), leftPos, rightPos, leftEdge, rightEdge);
+    //    }
+    //    return;
+    //}
+
+    // Gerer le cas d'un triangle plat en bas
+    if (pixelA.y == pixelB.y)
+    {
+        float inv_dyAC = 1.0 / (float) dyAC;
+        float inv_dyBC = 1.0 / (float) dyBC;
+
+        for (int y = pixelA.y; y < pixelC.y; y++)
+        {
+            float factorAC = (y - pixelA.y) * inv_dyAC;
+            float factorBC = (y - pixelB.y) * inv_dyBC;
+
+            leftEdge = mad((pixelC - pixelA), factorAC, pixelA);
+            rightEdge = mad((pixelC - pixelB), factorBC, pixelB);
+
+            leftPos = mad((positionC - positionA), factorAC, positionA);
+            rightPos = mad((positionC - positionB), factorBC, positionB);
+
+            leftCol = mad((colorC - colorA), factorAC, colorA);
+            rightCol = mad((colorC - colorB), factorBC, colorB);
+
+            if (leftEdge.x > rightEdge.x)
+            {
+                Swap(leftEdge, rightEdge);
+                Swap(leftPos, rightPos);
+                Swap(leftCol, rightCol);
+            }
+
+            DrawPosColLine(leftCol, rightCol, leftPos, rightPos, leftEdge, rightEdge);
+        //DrawPosColLine(float4(0, 0, 1, 1), float4(0, 0, 1, 1), leftPos, rightPos, leftEdge, rightEdge);
+        }
+        return;
+    }
+    //if (pixelA.y == pixelB.y)
+    //{
+    //    for (int y = pixelA.y; y < pixelC.y; y++)
+    //    {
+    //        leftEdge = pixelA + (pixelC - pixelA) * (y - pixelA.y) / dyAC;
+    //        rightEdge = pixelB + (pixelC - pixelB) * (y - pixelB.y) / dyBC;
+    //        leftPos = positionA + (positionC - positionA) * (y - pixelA.y) / dyAC;
+    //        rightPos = positionB + (positionC - positionB) * (y - pixelB.y) / dyBC;
+    //        leftCol = colorA + (colorC - colorA) * (y - pixelA.y) / dyAC;
+    //        rightCol = colorB + (colorC - colorB) * (y - pixelB.y) / dyBC;
+            
+    //        if (leftEdge.x > rightEdge.x)
+    //        {
+    //            Swap(leftEdge, rightEdge);
+    //            Swap(leftPos, rightPos);
+    //            Swap(leftCol, rightCol);
+    //        }
+    //        DrawPosColLine(leftCol, rightCol, leftPos, rightPos, leftEdge, rightEdge);
+    //        //DrawPosColLine(float4(0, 0, 1, 1), float4(0, 0, 1, 1), leftPos, rightPos, leftEdge, rightEdge);
+    //    }
+    //    return;
+    //}
+
+    // Interpolation des bords du triangle general
+    for (int y = pixelA.y; y < pixelC.y; y++)
+    {
+        float inv_dyAC = 1.0 / (float) dyAC;
+        float inv_dyAB = 1.0 / (float) dyAB;
+        float inv_dyBC = 1.0 / (float) dyBC;
+
+        //optimized version of the following code
+        if (y < pixelB.y)
+        {
+            float factorAC = (y - pixelA.y) * inv_dyAC;
+            float factorAB = (y - pixelA.y) * inv_dyAB;
+
+            leftEdge = mad((pixelC - pixelA), factorAC, pixelA);
+            rightEdge = mad((pixelB - pixelA), factorAB, pixelA);
+
+            leftPos = mad((positionC - positionA), factorAC, positionA);
+            rightPos = mad((positionB - positionA), factorAB, positionA);
+
+            leftCol = mad((colorC - colorA), factorAC, colorA);
+            rightCol = mad((colorB - colorA), factorAB, colorA);
+        }
+        else
+        {
+            float factorAC = (y - pixelA.y) * inv_dyAC;
+            float factorBC = (y - pixelB.y) * inv_dyBC;
+
+            leftEdge = mad((pixelC - pixelA), factorAC, pixelA);
+            rightEdge = mad((pixelC - pixelB), factorBC, pixelB);
+
+            leftPos = mad((positionC - positionA), factorAC, positionA);
+            rightPos = mad((positionC - positionB), factorBC, positionB);
+
+            leftCol = mad((colorC - colorA), factorAC, colorA);
+            rightCol = mad((colorC - colorB), factorBC, colorB);
+        }
+        //if (y < pixelB.y)
+        //{
+        //    leftEdge = pixelA + (pixelC - pixelA) * (y - pixelA.y) / dyAC;
+        //    rightEdge = pixelA + (pixelB - pixelA) * (y - pixelA.y) / dyAB;
+        //    leftPos = positionA + (positionC - positionA) * (y - pixelA.y) / dyAC;
+        //    rightPos = positionA + (positionB - positionA) * (y - pixelA.y) / dyAB;
+        //    leftCol = colorA + (colorC - colorA) * (y - pixelA.y) / dyAC;
+        //    rightCol = colorA + (colorB - colorA) * (y - pixelA.y) / dyAB;
+        //}
+        //else
+        //{
+        //    leftEdge = pixelA + (pixelC - pixelA) * (y - pixelA.y) / dyAC;
+        //    rightEdge = pixelB + (pixelC - pixelB) * (y - pixelB.y) / dyBC;
+        //    leftPos = positionA + (positionC - positionA) * (y - pixelA.y) / dyAC;
+        //    rightPos = positionB + (positionC - positionB) * (y - pixelB.y) / dyBC;
+        //    leftCol = colorA + (colorC - colorA) * (y - pixelA.y) / dyAC;
+        //    rightCol = colorB + (colorC - colorB) * (y - pixelB.y) / dyBC;
+        //}
+
+        if (leftEdge.x > rightEdge.x)
+        {
+            Swap(leftEdge, rightEdge);
+            Swap(leftPos, rightPos);
+            Swap(leftCol, rightCol);
+        }
+        DrawPosColLine(leftCol, rightCol, leftPos, rightPos, leftEdge, rightEdge);
+        //DrawPosColLine(float4(1, 0, 1, 1), float4(1, 0, 1, 1), leftPos, rightPos, leftEdge, rightEdge);
+    }
+}
+
+
+[numthreads(8,8,1)]
+void CSMain (uint2 id : SV_DispatchThreadID)
+{
+    
+    if ((PosMapRead[id].w < 0.01) //BL
+        && (PosMapRead[uint2(id.x + 1, id.y)].w < 0.01 //BR
+        && PosMapRead[uint2(id.x, id.y + 1)].w < 0.01 //TL
+        && PosMapRead[uint2(id.x + 1, id.y + 1)].w < 0.01)) //TR
+        return;
+    
+    int idXfromBottomLeft;
+    int idYfromBottomLeft;
+    
+    int idXfromBottomRight;
+    int idYfromBottomRight;
+    
+    int idXfromTopLeft;
+    int idYfromTopLeft;
+    
+    int idXfromTopRight;
+    int idYfromTopRight;
+    
+    //Change of coordinate system: inverse of rotation minus the projection Origin
+    
+    //calculate relativePosition for Bottom left pixel
+    float3 relativePositionBottomLeft = PosMapRead[id].xyz - O.xyz; //-bBoxPivot.xyz
+    relativePositionBottomLeft = mul(bBoxMat, float4(relativePositionBottomLeft.xyz, 1.0)).xyz;
+    
+    //calculate relativePosition for Bottom right pixel
+    float3 relativePositionBottomRight = PosMapRead[uint2(id.x + 1, id.y)].xyz - O.xyz; //-bBoxPivot.xyz
+    relativePositionBottomRight = mul(bBoxMat, float4(relativePositionBottomRight.xyz, 1.0)).xyz;
+    
+    //calculate relativePosition for Top left pixel
+    float3 relativePositionTopLeft = PosMapRead[uint2(id.x, id.y + 1)].xyz - O.xyz; //-bBoxPivot.xyz
+    relativePositionTopLeft = mul(bBoxMat, float4(relativePositionTopLeft.xyz, 1.0)).xyz;
+    
+    //calculate relativePosition for Top right pixel
+    float3 relativePositionTopRight = PosMapRead[uint2(id.x + 1, id.y + 1)].xyz - O.xyz; //-bBoxPivot.xyz
+    relativePositionTopRight = mul(bBoxMat, float4(relativePositionTopRight.xyz, 1.0)).xyz;
+    
+    float3 relativeCamPos = camPos.xyz - O.xyz;
+    //float3 relativeCamPos = float3(camPos.x - O.x,camPos.y - O.y, 0.5*Z.z - O.z);
+    //float3 relativeCamPos = ((X.xyz + Y.xyz - Z.xyz) - O.xyz) / 2; //looks really ok + camPos.xyz doesnt look necessary
+    //float3 relativeCamPos = ((X.xyz + Y.xyz - Z.xyz) - O.xyz) / 2;
+    //float3 relativeCamPos = O.xyz - (0.5 * (X.xyz + Y.xyz)) + camPos.xyz;
+    relativeCamPos = mul(bBoxMat, float4(relativeCamPos.xyz, 1.0)).xyz;
+    //relativeCamPos = float3(relativeCamPos.xy, -1); //solution simple pour ne pas avoir de retrecissement de l image projetee//Attention a la metrique -1000 si en Kinect Unit
+    //Calculate the pixel Width,Height and Depth
+    float pixelWidth = abs(distance(X, O)) / orthoWidth;
+    float pixelHeight = abs(distance(Y, O)) / orthoHeight;
+    float pixelDepth = abs(distance(Z, O)) / orthoDepth;
+    
+    //Normal calculation - Keijiro uses the 4th pixel before and after in x and y to make a cross product
+    
+    float3 normZaxis = normalize(Z.xyz - O.xyz);
+    float3 normRelativeCamPos = normalize(relativeCamPos);
+    
+    float3 p_x0 = PosMapRead[uint2(id.x - 4, id.y)].xyz - O.xyz;
+    //p_x0 = mul(bBoxMat, float4(p_x0.xyz, 1.0)).xyz;
+    float3 p_x1 = PosMapRead[uint2(id.x + 4, id.y)].xyz - O.xyz;
+    //p_x1 = mul(bBoxMat, float4(p_x1.xyz, 1.0)).xyz;
+    float3 p_y0 = PosMapRead[uint2(id.x, id.y - 4)].xyz - O.xyz;
+    //p_y0 = mul(bBoxMat, float4(p_y0.xyz, 1.0)).xyz;
+    float3 p_y1 = PosMapRead[uint2(id.x, id.y + 4)].xyz - O.xyz;
+    //p_y1 = mul(bBoxMat, float4(p_y1.xyz, 1.0)).xyz;
+    
+    float3 normal = normalize(cross(p_x1 - p_x0, p_y1 - p_y0)); //gave good results until now
+    
+    if (dot(normal, normZaxis) < scalarNormalLimit)
+        return;
+   
+    //For every pixel in a rectangle defined by the bottom left triangle we double check if it's part of this triangle
+
+        //Calculate the ID of the perspective texture (output) - solved the parametric equation between the line (relativePosition - relativeCamPos) and the Z plan (Z=0)
+    
+   //test to avoid crashing - Works around -1 ! dig into it
+    //if (relativeCamPos.z > -2)
+    //    relativeCamPos = float3(relativeCamPos.xy, -2);
+
+        idXfromBottomLeft = floor((relativePositionBottomLeft.x - (relativeCamPos - relativePositionBottomLeft).x * (relativePositionBottomLeft.z / (relativeCamPos - relativePositionBottomLeft).z)) / pixelWidth);
+        idYfromBottomLeft = floor((relativePositionBottomLeft.y - (relativeCamPos - relativePositionBottomLeft).y * (relativePositionBottomLeft.z / (relativeCamPos - relativePositionBottomLeft).z)) / pixelHeight);
+        uint2 IDfromBottomLeft = uint2(idXfromBottomLeft, idYfromBottomLeft);
+    
+        idXfromBottomRight = floor((relativePositionBottomRight.x - (relativeCamPos - relativePositionBottomRight).x * (relativePositionBottomRight.z / (relativeCamPos - relativePositionBottomRight).z)) / pixelWidth);
+        idYfromBottomRight = floor((relativePositionBottomRight.y - (relativeCamPos - relativePositionBottomRight).y * (relativePositionBottomRight.z / (relativeCamPos - relativePositionBottomRight).z)) / pixelHeight);
+        uint2 IDfromBottomRight = uint2(idXfromBottomRight, idYfromBottomRight);
+    
+        idXfromTopLeft = floor((relativePositionTopLeft.x - (relativeCamPos - relativePositionTopLeft).x * (relativePositionTopLeft.z / (relativeCamPos - relativePositionTopLeft).z)) / pixelWidth);
+        idYfromTopLeft = floor((relativePositionTopLeft.y - (relativeCamPos - relativePositionTopLeft).y * (relativePositionTopLeft.z / (relativeCamPos - relativePositionTopLeft).z)) / pixelHeight);
+        uint2 IDfromTopLeft = uint2(idXfromTopLeft, idYfromTopLeft);
+    
+        idXfromTopRight = floor((relativePositionTopRight.x - (relativeCamPos - relativePositionTopRight).x * (relativePositionTopRight.z / (relativeCamPos - relativePositionTopRight).z)) / pixelWidth);
+        idYfromTopRight = floor((relativePositionTopRight.y - (relativeCamPos - relativePositionTopRight).y * (relativePositionTopRight.z / (relativeCamPos - relativePositionTopRight).z)) / pixelHeight);
+        uint2 IDfromTopRight = uint2(idXfromTopRight, idYfromTopRight);
+    
+    //Don't process the projected pixels out of the output maps
+    int posMapOutWidth;
+    int posMapOutHeight;
+    PosMapOut.GetDimensions(posMapOutWidth, posMapOutHeight);
+
+    if (IDfromBottomLeft.x < 0 || IDfromBottomLeft.y < 0 || IDfromBottomLeft.x >= posMapOutWidth || IDfromBottomLeft.y >= posMapOutHeight ||
+        IDfromBottomRight.x < 0 || IDfromBottomRight.y < 0 || IDfromBottomRight.x >= posMapOutWidth || IDfromBottomRight.y >= posMapOutHeight ||
+        IDfromTopLeft.x < 0 || IDfromTopLeft.y < 0 || IDfromTopLeft.x >= posMapOutWidth || IDfromTopLeft.y >= posMapOutHeight ||
+        IDfromTopRight.x < 0 || IDfromTopRight.y < 0 || IDfromTopRight.x >= posMapOutWidth || IDfromTopRight.y >= posMapOutHeight)
+    {
+        return;
+    }
+
+    
+    if (PosMapRead[uint2(id.x, id.y)].w > 0
+        && PosMapRead[uint2(id.x + 1, id.y)].w > 0
+        && PosMapRead[uint2(id.x, id.y + 1)].w > 0
+        && PosMapRead[uint2(id.x + 1, id.y + 1)].w > 0)
+    {    
+        FillTrianglePosCol(ColMapRead[id], ColMapRead[uint2(id.x + 1, id.y)], ColMapRead[uint2(id.x, id.y + 1)],
+    float4(relativePositionBottomLeft.xyz, PosMapRead[id].w),
+    float4(relativePositionBottomRight.xyz, PosMapRead[uint2(id.x + 1, id.y)].w),
+    float4(relativePositionTopLeft.xyz, PosMapRead[uint2(id.x, id.y + 1)].w),
+    int2(IDfromBottomLeft), int2(IDfromBottomRight), int2(IDfromTopLeft));
+        
+    //    FillTrianglePosCol(float4(1, 0, 0, 1), float4(0, 1, 0, 1), float4(0, 0, 1, 1),
+    //float4(1, 1, 1, 1),
+    //float4(1, 1, 1, 1),
+    //float4(1, 1, 1, 1),
+    //int2(125, 125), int2(100, 25), int2(25, 75));
+        
+        FillTrianglePosCol(ColMapRead[uint2(id.x, id.y + 1)], ColMapRead[uint2(id.x + 1, id.y + 1)], ColMapRead[uint2(id.x + 1, id.y)],
+    float4(relativePositionTopLeft.xyz, PosMapRead[uint2(id.x, id.y + 1)].w),
+    float4(relativePositionTopRight.xyz, PosMapRead[uint2(id.x + 1, id.y + 1)].w),
+    float4(relativePositionBottomRight.xyz, PosMapRead[uint2(id.x + 1, id.y)].w),
+    int2(IDfromTopLeft), int2(IDfromTopRight), int2(IDfromBottomRight));
+        
+        //PosMapOut[id] = PosMapRead[id];
+        //ColMapOut[id] = ColMapRead[id];
+        
+        
+    
+    //    // //BL - BR (Bottom left - Bottom Right)
+    
+    //    DrawPosColLine(ColMapRead[id], ColMapRead[uint2(id.x + 1, id.y)],
+    //float4(relativePositionBottomLeft.xyz, PosMapRead[id].w),
+    //float4(relativePositionBottomRight.xyz, PosMapRead[uint2(id.x + 1, id.y)].w),
+    //int2(IDfromBottomLeft), int2(IDfromBottomRight));
+    
+    ////// // --- BL - TL (BottomLeft - TopLeft) ---
+
+    //    DrawPosColLine(ColMapRead[id], ColMapRead[uint2(id.x, id.y + 1)],
+    //float4(relativePositionBottomLeft.xyz, PosMapRead[id].w),
+    //float4(relativePositionTopLeft.xyz, PosMapRead[uint2(id.x, id.y + 1)].w),
+    //int2(IDfromBottomLeft), int2(IDfromTopLeft));
+    
+    ////////---TL - BR(TopLeft - BottomRight)-- -
+    
+    //    DrawPosColLine(ColMapRead[uint2(id.x, id.y + 1)], ColMapRead[uint2(id.x + 1, id.y)],
+    //float4(relativePositionTopLeft.xyz, PosMapRead[uint2(id.x, id.y + 1)].w),
+    //float4(relativePositionBottomRight.xyz, PosMapRead[uint2(id.x + 1, id.y)].w),
+    //int2(IDfromTopLeft), int2(IDfromBottomRight));
+        
+
+        
+    ////// --- BR - TR (BottomRight - TopRight) ---
+    
+    //    DrawPosColLine(ColMapRead[uint2(id.x + 1, id.y)], ColMapRead[uint2(id.x + 1, id.y + 1)],
+    //float4(relativePositionBottomRight.xyz, PosMapRead[uint2(id.x + 1, id.y)].w),
+    //float4(relativePositionTopRight.xyz, PosMapRead[uint2(id.x + 1, id.y + 1)].w),
+    //int2(IDfromBottomRight), int2(IDfromTopRight));
+    
+    ////// --- TL - TR (TopLeft - TopRight) ---
+    //    DrawPosColLine(ColMapRead[uint2(id.x, id.y + 1)], ColMapRead[uint2(id.x + 1, id.y + 1)],
+    //float4(relativePositionTopLeft.xyz, PosMapRead[uint2(id.x, id.y + 1)].w),
+    //float4(relativePositionTopRight.xyz, PosMapRead[uint2(id.x + 1, id.y + 1)].w),
+    //int2(IDfromTopLeft), int2(IDfromTopRight));
+        
+        
+    }
+    
+
+}
+
+

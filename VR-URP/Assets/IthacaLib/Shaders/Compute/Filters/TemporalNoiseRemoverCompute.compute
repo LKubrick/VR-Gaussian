@@ -1,0 +1,1056 @@
+#pragma kernel CSMain
+
+float depthThreshold; // Depth threshold to define edges
+int thickness;
+int Delay;
+bool visualize;
+float motionThreshold; // to define in cs for the stand alone module
+bool motionVisualize; // to define in cs for the stand alone module
+
+Texture2DArray<float4> PositionHistory;
+Texture2DArray<float4> ColorHistory;
+
+RWTexture2D<float4> PosMapOut;
+RWTexture2D<float4> ColMapOut;
+
+[numthreads(8, 8, 1)]
+void CSMain(uint2 id : SV_DispatchThreadID)
+{
+    float4 centerColor = ColorHistory[uint3(id, Delay)];
+    float4 centerPosition = PositionHistory[uint3(id, Delay)];
+    uint width;
+    uint height;
+    uint historyElements;
+    uint historyLevels;
+    ColorHistory.GetDimensions(0, width, height, historyElements, historyLevels);
+    
+    bool isEdge = false;
+    
+    bool motionDetected = false;
+    float4 previousAverageColor;
+    float4 currentAverageColor;
+    float4 previousAveragePosition;
+    float4 currentAveragePosition;
+    
+    //Saves a lot of performances, maybe apply it in the other filters if possible
+    if (centerPosition.z == 0)
+        return;
+    
+    // Edge detection
+        if (thickness >= 0)
+        {
+
+        //Edge detection
+            for (int i = -thickness; i <= thickness; i++)
+            {
+                for (int j = -thickness; j <= thickness; j++)
+                {
+                //if (i == 0 && j == 0)
+                //    continue;
+
+                    uint2 neighborCoord = id + int2(i, j);
+                
+                //For motion detection we try to expand the square by mulptiplying the index of the neighbour by floor(width / 160) 
+                // in order to keep it propotionnal to the image size
+                    uint2 multiplyedNeighborCoord = id + int2(i, j) * floor(width / 160);
+                
+                    if (
+                    neighborCoord.x < 0 && neighborCoord.y < 0
+                    || neighborCoord.x > width || neighborCoord.y > height
+                    )
+                        continue;
+
+                    float neighborDepth = PositionHistory[uint3(neighborCoord, Delay)].z;
+  
+                //edge checking    
+                    if (abs(centerPosition.z - neighborDepth) > depthThreshold)
+                    {
+                        isEdge = true;
+                    //break;
+                    }
+                
+                    if (
+                    multiplyedNeighborCoord.x < 0 || multiplyedNeighborCoord.y < 0
+                    || multiplyedNeighborCoord.x > width || multiplyedNeighborCoord.y > height
+                    )
+                        continue;
+                
+                    if (PositionHistory[uint3(multiplyedNeighborCoord, Delay)].z > 0 && ColorHistory[uint3(multiplyedNeighborCoord, Delay)].a != 0)
+                    {
+                    
+                        previousAverageColor += ColorHistory[uint3(multiplyedNeighborCoord, Delay + 1)] / 2;
+                        currentAverageColor += ColorHistory[uint3(multiplyedNeighborCoord, Delay)] / 2;
+                    
+                        previousAveragePosition += PositionHistory[uint3(multiplyedNeighborCoord, Delay + 1)] / 2;
+                        currentAveragePosition += PositionHistory[uint3(multiplyedNeighborCoord, Delay)] / 2;
+                    
+                    }
+                }
+            //if (isEdge)
+            //    break;
+            }
+        
+        //Conditions to discriminate motion, might be improved
+            if (
+            //(previousAverageColor.r / currentAverageColor.r > 1 - motionThreshold && previousAverageColor.g / currentAverageColor.g > 1 - motionThreshold && previousAverageColor.b / currentAverageColor.b > 1 - motionThreshold)
+            //&& (previousAverageColor.r / currentAverageColor.r < 1 + motionThreshold && previousAverageColor.g / currentAverageColor.g < 1 + motionThreshold && previousAverageColor.b / currentAverageColor.b < 1 + motionThreshold)
+
+            //&&
+            
+            (previousAveragePosition.z / currentAveragePosition.z > 1 - motionThreshold)
+            && (previousAveragePosition.z / currentAveragePosition.z < 1 + motionThreshold)
+            //abs(pastAveragePosition.z - currentAveragePosition.z) < 0
+            
+            )
+            {
+                motionDetected = false;
+            }
+            else
+            {
+                if (previousAveragePosition.z > 0 && currentAveragePosition.z > 0) // AND or OR ? 
+                    motionDetected = true;
+            }
+        
+        
+        }
+
+    if (!isEdge || (isEdge && motionDetected) || Delay == 0)
+    {
+        PosMapOut[id] = centerPosition;
+        ColMapOut[id] = centerColor;
+        
+        //DEBUG
+        if (motionDetected && motionVisualize) 
+            ColMapOut[id] = float4(0, 1, 0, 1);
+            
+        return;
+    }
+
+    if (Delay > 0 && isEdge && !motionDetected)
+    {
+        PosMapOut[id] = centerPosition;
+        ColMapOut[id] = centerColor;
+        
+        //if (isTracked)
+        //    ColMapOut[id] = float4(1, 0, 0, 1);
+
+        bool preCurrentFrameZeroDetected;
+        bool postCurrentFrameZeroDetected;
+        
+        for (int preframe = 0; preframe < Delay; preframe++)
+        {
+            float4 framePosition = PositionHistory[uint3(id, preframe)];
+
+            if (abs(framePosition.z - centerPosition.z) > depthThreshold  && centerPosition.z != 0)
+            {
+                preCurrentFrameZeroDetected = true;
+                break;
+            }
+        }
+        
+        for (int postframe = Delay + 1; postframe <= Delay * 2; postframe++)
+        {
+            float4 framePosition = PositionHistory[uint3(id, postframe)];
+
+            if (abs(framePosition.z - centerPosition.z) > depthThreshold && centerPosition.z != 0)
+            {
+                postCurrentFrameZeroDetected = true;
+                break;
+            }
+        }
+        
+        if (preCurrentFrameZeroDetected && postCurrentFrameZeroDetected)
+        {
+            if (!visualize)
+            {
+                ColMapOut[id] = float4(0, 0, 0, 0);
+                PosMapOut[id] = float4(0, 0, 0, 0);
+                
+                    
+            }
+            else
+            {
+                ColMapOut[id] = float4(1, 0, 0, 1);
+                
+            }
+            
+        }
+        
+    }
+}
+
+//#pragma kernel CSMain
+
+//RWTexture2D<float4> PosMapOut; // Output position map
+//RWTexture2D<float4> ColMapOut; // Output color map
+
+////Texture2D<float4> PosMapRead; // Input position map
+////Texture2D<float4> ColMapRead; // Input color map
+
+////int FrameHistory; // Number of frames to use in history
+//float depthThreshold; // Depth threshold to define edges
+//int thickness;
+//int Delay;
+//bool visualize;
+
+////#define MAX_FRAMES 10 //size of the array of texture2D
+////Texture2D<float4> PreviousFramesPosMap[MAX_FRAMES];
+////Texture2D<float4> PreviousFramesColMap[MAX_FRAMES];
+
+//Texture2DArray<float4> PositionHistory;
+//Texture2DArray<float4> ColorHistory;
+
+//[numthreads(8, 8, 1)]
+//void CSMain(uint2 id : SV_DispatchThreadID)
+//{
+//    //Added code cos the fusion is operating on +delay frames which induce a delay between the camera and the actual point cloud
+//    float4 centerColor;
+//    float4 centerPosition;
+
+//    centerColor = ColorHistory[uint3(id, Delay)];
+//    centerPosition = PositionHistory[uint3(id, Delay)];
+    
+//        bool isEdge = false;
+    
+//        if (thickness >= 0)
+//        {
+//            for (int i = -thickness; i <= thickness; i++)
+//            {
+//                for (int j = -thickness; j <= thickness; j++)
+//                {
+//                    if (i == 0 && j == 0)
+//                        continue;
+
+//                    uint2 neighborCoord = id + int2(i, j);
+//                    if (neighborCoord.x < 0 || neighborCoord.y < 0)
+//                        continue;
+                
+//                float neighborDepth;
+                
+//                    neighborDepth = PositionHistory[uint3(neighborCoord, Delay)].z;
+                
+//                    if (abs(centerPosition.z - neighborDepth) > depthThreshold)
+//                    {
+//                        isEdge = true;
+//                        break;
+//                    }
+//                //for (int i = 0; i <= Delay-1; i++)
+//                //{
+//                //    float neighborDepth = PreviousFramesPosMap[i][neighborCoord].z;
+//                //    if (abs(PreviousFramesPosMap[i][id].z - neighborDepth) > depthThreshold)
+//                //    {
+//                //        isEdge = true;
+//                //        break;
+//                //    }
+//                //}
+
+//                }
+//                if (isEdge)
+//                    break;
+//            }
+//        }
+
+
+//        if (!isEdge)
+//        {
+//        //ColMapOut[id] = centerColor;
+//        //PosMapOut[id] = centerPosition;
+
+//            PosMapOut[id] = PositionHistory[uint3(id, Delay)];
+//            ColMapOut[id] = ColorHistory[uint3(id, Delay)];
+//            return;
+
+            
+//        }
+    
+//    //END of added code to correct ColMapOut[id] =the temporal displaying problem
+    
+//    //Working code for a delay of 5 frames max
+//        if (Delay == 0)
+//        {
+//            PosMapOut[id] = PositionHistory[uint3(id, 0)];
+//            ColMapOut[id] = ColorHistory[uint3(id, 0)];
+//        }
+    
+    
+//        if (Delay == 1)
+//        {
+//            //PosMapOut[id] = PreviousFramesPosMap[0][id];
+//            //ColMapOut[id] = PreviousFramesColMap[0][id];
+//            PosMapOut[id] = PositionHistory[uint3(id, 1)];
+//            ColMapOut[id] = ColorHistory[uint3(id, 1)];
+
+        
+//            //if (PosMapRead[id].z == 0 && PreviousFramesPosMap[0][id].z != 0 && PreviousFramesPosMap[1][id].z == 0)
+//        if (PositionHistory[uint3(id, 0)].z == 0 && PositionHistory[uint3(id, 1)].z != 0 && PositionHistory[uint3(id, 2)].z == 0)
+//            {
+//                if (!visualize)
+//                {
+//                    ColMapOut[id] = float4(0, 0, 0, 0);
+//                    PosMapOut[id] = float4(0, 0, 0, 0);
+
+//                }
+//                else
+//                    ColMapOut[id] = float4(1, 0, 0, 1);
+
+//            }
+//        }
+    
+    
+//        if (Delay == 2)
+//        {
+//            //PosMapOut[id] = PreviousFramesPosMap[1][id];
+//            //ColMapOut[id] = PreviousFramesColMap[1][id];
+//            PosMapOut[id] = PositionHistory[uint3(id, 2)];
+//            ColMapOut[id] = ColorHistory[uint3(id, 2)];
+
+    
+//        if (PositionHistory[uint3(id, 1)].z == 0 && PositionHistory[uint3(id, 2)].z != 0 && PositionHistory[uint3(id, 3)].z == 0)
+//            {
+//                if (!visualize)
+//                {
+//                    ColMapOut[id] = float4(0, 0, 0, 0);
+//                    PosMapOut[id] = float4(0, 0, 0, 0);
+
+//                }
+//                else
+//                    ColMapOut[id] = float4(1, 0, 0, 1);
+
+//            }
+        
+//        if (PositionHistory[uint3(id, 0)].z == 0 &&
+        
+//        PositionHistory[uint3(id, 1)].z != 0
+//        && PositionHistory[uint3(id, 2)].z != 0
+        
+//        && PositionHistory[uint3(id, 3)].z == 0)
+//            {
+//                if (!visualize)
+//                {
+//                    ColMapOut[id] = float4(0, 0, 0, 0);
+//                    PosMapOut[id] = float4(0, 0, 0, 0);
+
+//                }
+//                else
+//                    ColMapOut[id] = float4(0, 1, 0, 1);
+
+//            }
+    
+//        if (PositionHistory[uint3(id, 1)].z == 0
+        
+//        && PositionHistory[uint3(id, 2)].z != 0
+//        && PositionHistory[uint3(id, 3)].z != 0
+        
+//        && PositionHistory[uint3(id, 4)].z == 0
+//        )
+//            {
+//                if (!visualize)
+//                {
+//                    ColMapOut[id] = float4(0, 0, 0, 0);
+//                    PosMapOut[id] = float4(0, 0, 0, 0);
+
+//                }
+//                else
+//                    ColMapOut[id] = float4(0, 1, 0, 1);
+
+//            }
+//        }
+    
+//        if (Delay == 3)
+//        {
+//            //PosMapOut[id] = PreviousFramesPosMap[2][id];
+//            //ColMapOut[id] = PreviousFramesColMap[2][id];
+//            PosMapOut[id] = PositionHistory[uint3(id, 3)];
+//            ColMapOut[id] = ColorHistory[uint3(id, 3)];
+        
+//        if (PositionHistory[uint3(id, 2)].z == 0 && PositionHistory[uint3(id, 3)].z != 0 && PositionHistory[uint3(id, 4)].z == 0)
+//            {
+//                if (!visualize)
+//                {
+//                    ColMapOut[id] = float4(0, 0, 0, 0);
+//                    PosMapOut[id] = float4(0, 0, 0, 0);
+
+//                }
+//                else
+//                    ColMapOut[id] = float4(1, 0, 0, 1);
+//            }
+            
+//        if (PositionHistory[uint3(id, 1)].z == 0
+        
+//        && PositionHistory[uint3(id, 2)].z != 0
+//        && PositionHistory[uint3(id, 3)].z != 0
+        
+//        && PositionHistory[uint3(id, 4)].z == 0)
+//            {
+//                if (!visualize)
+//                {
+//                    ColMapOut[id] = float4(0, 0, 0, 0);
+//                    PosMapOut[id] = float4(0, 0, 0, 0);
+
+//                }
+//                else
+//                    ColMapOut[id] = float4(0, 1, 0, 1);
+
+//            }
+    
+//        if (PositionHistory[uint3(id, 2)].z == 0
+        
+//        && PositionHistory[uint3(id, 3)].z != 0
+//        && PositionHistory[uint3(id, 4)].z != 0
+        
+//        && PositionHistory[uint3(id, 5)].z == 0)
+//            {
+//                if (!visualize)
+//                {
+//                    ColMapOut[id] = float4(0, 0, 0, 0);
+//                    PosMapOut[id] = float4(0, 0, 0, 0);
+
+//                }
+//                else
+//                    ColMapOut[id] = float4(0, 1, 0, 1);
+
+//            }
+           
+        
+        
+//        if (PositionHistory[uint3(id, 0)].z != 0
+        
+//        && PositionHistory[uint3(id, 1)].z != 0
+//        && PositionHistory[uint3(id, 2)].z != 0
+//        && PositionHistory[uint3(id, 3)].z != 0
+            
+//        && PositionHistory[uint3(id, 4)].z == 0
+//            )
+//            {
+//                if (!visualize)
+//                {
+//                    ColMapOut[id] = float4(0, 0, 0, 0);
+//                    PosMapOut[id] = float4(0, 0, 0, 0);
+
+//                }
+//                else
+//                    ColMapOut[id] = float4(0, 0, 1, 1);
+
+//            }
+        
+//        if (PositionHistory[uint3(id, 1)].z == 0
+        
+//        && PositionHistory[uint3(id, 2)].z != 0
+//        && PositionHistory[uint3(id, 3)].z != 0
+//        && PositionHistory[uint3(id, 4)].z != 0
+            
+//        && PositionHistory[uint3(id, 5)].z == 0)
+//            {
+//                if (!visualize)
+//                {
+//                    ColMapOut[id] = float4(0, 0, 0, 0);
+//                    PosMapOut[id] = float4(0, 0, 0, 0);
+
+//                }
+//                else
+//                    ColMapOut[id] = float4(0, 0, 1, 1);
+
+//            }
+        
+//        if (PositionHistory[uint3(id, 2)].z == 0
+        
+//        && PositionHistory[uint3(id, 3)].z != 0
+//        && PositionHistory[uint3(id, 4)].z != 0
+//        && PositionHistory[uint3(id, 5)].z != 0
+            
+//        && PositionHistory[uint3(id, 6)].z == 0)
+//            {
+//                if (!visualize)
+//                {
+//                    ColMapOut[id] = float4(0, 0, 0, 0);
+//                    PosMapOut[id] = float4(0, 0, 0, 0);
+
+//                }
+//                else
+//                    ColMapOut[id] = float4(0, 0, 1, 1);
+
+//            }
+        
+//        }
+    
+//        if (Delay == 4)
+//        {
+//            //PosMapOut[id] = PreviousFramesPosMap[3][id];
+//            //ColMapOut[id] = PreviousFramesColMap[3][id];
+//        PosMapOut[id] = PositionHistory[uint3(id, 4)];
+//        ColMapOut[id] = ColorHistory[uint3(id, 4)];
+        
+//        if (PositionHistory[uint3(id, 3)].z == 0 && PositionHistory[uint3(id, 4)].z != 0 && PositionHistory[uint3(id, 5)].z == 0)
+//            {
+//                if (!visualize)
+//                {
+//                    ColMapOut[id] = float4(0, 0, 0, 0);
+//                    PosMapOut[id] = float4(0, 0, 0, 0);
+
+//                }
+//                else
+//                    ColMapOut[id] = float4(1, 0, 0, 1);
+//            }
+            
+//        if (PositionHistory[uint3(id, 2)].z == 0
+        
+//        && PositionHistory[uint3(id, 3)].z != 0
+//        && PositionHistory[uint3(id, 4)].z != 0
+        
+//        && PositionHistory[uint3(id, 5)].z == 0)
+//            {
+//                if (!visualize)
+//                {
+//                    ColMapOut[id] = float4(0, 0, 0, 0);
+//                    PosMapOut[id] = float4(0, 0, 0, 0);
+
+//                }
+//                else
+//                    ColMapOut[id] = float4(0, 1, 0, 1);
+
+//            }
+    
+//        if (PositionHistory[uint3(id, 3)].z == 0
+        
+//        && PositionHistory[uint3(id, 4)].z != 0
+//        && PositionHistory[uint3(id, 5)].z != 0
+        
+//        && PositionHistory[uint3(id, 6)].z == 0)
+//            {
+//                if (!visualize)
+//                {
+//                    ColMapOut[id] = float4(0, 0, 0, 0);
+//                    PosMapOut[id] = float4(0, 0, 0, 0);
+
+//                }
+//                else
+//                    ColMapOut[id] = float4(0, 1, 0, 1);
+
+//            }
+           
+        
+        
+//        if (PositionHistory[uint3(id, 1)].z == 0
+        
+//        && PositionHistory[uint3(id, 2)].z != 0
+//        && PositionHistory[uint3(id, 3)].z != 0
+//        && PositionHistory[uint3(id, 4)].z != 0
+            
+//        && PositionHistory[uint3(id, 5)].z == 0
+//            )
+//            {
+//                if (!visualize)
+//                {
+//                    ColMapOut[id] = float4(0, 0, 0, 0);
+//                    PosMapOut[id] = float4(0, 0, 0, 0);
+
+//                }
+//                else
+//                    ColMapOut[id] = float4(0, 0, 1, 1);
+
+//            }
+        
+//        if (PositionHistory[uint3(id, 2)].z == 0
+        
+//        && PositionHistory[uint3(id, 3)].z != 0
+//        && PositionHistory[uint3(id, 4)].z != 0
+//        && PositionHistory[uint3(id, 5)].z != 0
+            
+//        && PositionHistory[uint3(id, 6)].z == 0)
+//            {
+//                if (!visualize)
+//                {
+//                    ColMapOut[id] = float4(0, 0, 0, 0);
+//                    PosMapOut[id] = float4(0, 0, 0, 0);
+
+//                }
+//                else
+//                    ColMapOut[id] = float4(0, 0, 1, 1);
+
+//            }
+        
+//        if (PositionHistory[uint3(id, 3)].z == 0
+        
+//        && PositionHistory[uint3(id, 4)].z != 0
+//        && PositionHistory[uint3(id, 5)].z != 0
+//        && PositionHistory[uint3(id, 6)].z != 0
+            
+//        && PositionHistory[uint3(id, 7)].z == 0)
+//            {
+//                if (!visualize)
+//                {
+//                    ColMapOut[id] = float4(0, 0, 0, 0);
+//                    PosMapOut[id] = float4(0, 0, 0, 0);
+
+//                }
+//                else
+//                    ColMapOut[id] = float4(0, 0, 1, 1);
+
+//            }
+        
+        
+//            if (PositionHistory[uint3(id, 0)].z != 0
+        
+//        && PositionHistory[uint3(id, 1)].z != 0
+//        && PositionHistory[uint3(id, 2)].z != 0
+//        && PositionHistory[uint3(id, 3)].z != 0
+//        && PositionHistory[uint3(id, 4)].z != 0
+            
+//        && PositionHistory[uint3(id, 5)].z == 0)
+//            {
+//                if (!visualize)
+//                {
+//                    ColMapOut[id] = float4(0, 0, 0, 0);
+//                    PosMapOut[id] = float4(0, 0, 0, 0);
+
+//                }
+//                else
+//                    ColMapOut[id] = float4(1, 0, 1, 1);
+
+//            }
+        
+//        if (PositionHistory[uint3(id, 1)].z == 0
+        
+//        && PositionHistory[uint3(id, 2)].z != 0
+//        && PositionHistory[uint3(id, 3)].z != 0
+//        && PositionHistory[uint3(id, 4)].z != 0
+//        && PositionHistory[uint3(id, 5)].z != 0
+            
+//        && PositionHistory[uint3(id, 6)].z == 0)
+//            {
+//                if (!visualize)
+//                {
+//                    ColMapOut[id] = float4(0, 0, 0, 0);
+//                    PosMapOut[id] = float4(0, 0, 0, 0);
+
+//                }
+//                else
+//                    ColMapOut[id] = float4(1, 0, 1, 1);
+
+//            }
+        
+//        if (PositionHistory[uint3(id, 2)].z == 0
+        
+//        && PositionHistory[uint3(id, 3)].z != 0
+//        && PositionHistory[uint3(id, 4)].z != 0
+//        && PositionHistory[uint3(id, 5)].z != 0
+//        && PositionHistory[uint3(id,6)].z != 0
+            
+//        && PositionHistory[uint3(id, 7)].z == 0)
+//            {
+//                if (!visualize)
+//                {
+//                    ColMapOut[id] = float4(0, 0, 0, 0);
+//                    PosMapOut[id] = float4(0, 0, 0, 0);
+
+//                }
+//                else
+//                    ColMapOut[id] = float4(1, 0, 1, 1);
+
+//            }
+        
+//        if (PositionHistory[uint3(id, 3)].z == 0
+        
+//        && PositionHistory[uint3(id, 4)].z != 0
+//        && PositionHistory[uint3(id, 5)].z != 0
+//        && PositionHistory[uint3(id, 6)].z != 0
+//        && PositionHistory[uint3(id, 7)].z != 0
+            
+//        && PositionHistory[uint3(id, 8)].z == 0)
+//            {
+//                if (!visualize)
+//                {
+//                    ColMapOut[id] = float4(0, 0, 0, 0);
+//                    PosMapOut[id] = float4(0, 0, 0, 0);
+
+//                }
+//                else
+//                    ColMapOut[id] = float4(1, 0, 1, 1);
+
+//            }
+        
+        
+//        }
+    
+//        if (Delay == 5)
+//        {
+//            //PosMapOut[id] = PreviousFramesPosMap[4][id];
+//            //ColMapOut[id] = PreviousFramesColMap[4][id];
+//            PosMapOut[id] = PositionHistory[uint3(id, 5)];
+//            ColMapOut[id] = ColorHistory[uint3(id, 5)];
+        
+//            if (PositionHistory[uint3(id, 4)].z == 0 && PositionHistory[uint3(id, 5)].z != 0 && PositionHistory[uint3(id, 6)].z == 0)
+//            {
+//                if (!visualize)
+//                {
+//                    ColMapOut[id] = float4(0, 0, 0, 0);
+//                    PosMapOut[id] = float4(0, 0, 0, 0);
+
+//                }
+//                else
+//                    ColMapOut[id] = float4(1, 0, 0, 1);
+//            }
+            
+//        if (PositionHistory[uint3(id, 3)].z == 0
+        
+//        && PositionHistory[uint3(id, 4)].z != 0
+//        && PositionHistory[uint3(id, 5)].z != 0
+        
+//        && PositionHistory[uint3(id, 6)].z == 0)
+//            {
+//                if (!visualize)
+//                {
+//                    ColMapOut[id] = float4(0, 0, 0, 0);
+//                    PosMapOut[id] = float4(0, 0, 0, 0);
+
+//                }
+//                else
+//                    ColMapOut[id] = float4(0, 1, 0, 1);
+
+//            }
+    
+//        if (PositionHistory[uint3(id, 4)].z == 0
+        
+//        && PositionHistory[uint3(id, 5)].z != 0
+//        && PositionHistory[uint3(id, 6)].z != 0
+        
+//        && PositionHistory[uint3(id, 7)].z == 0)
+//            {
+//                if (!visualize)
+//                {
+//                    ColMapOut[id] = float4(0, 0, 0, 0);
+//                    PosMapOut[id] = float4(0, 0, 0, 0);
+
+//                }
+//                else
+//                    ColMapOut[id] = float4(0, 1, 0, 1);
+
+//            }
+           
+        
+        
+//        if (PositionHistory[uint3(id, 2)].z == 0
+        
+//        && PositionHistory[uint3(id, 3)].z != 0
+//        && PositionHistory[uint3(id, 4)].z != 0
+//        && PositionHistory[uint3(id, 5)].z != 0
+            
+//        && PositionHistory[uint3(id, 6)].z == 0
+//            )
+//            {
+//                if (!visualize)
+//                {
+//                    ColMapOut[id] = float4(0, 0, 0, 0);
+//                    PosMapOut[id] = float4(0, 0, 0, 0);
+
+//                }
+//                else
+//                    ColMapOut[id] = float4(0, 0, 1, 1);
+
+//            }
+        
+//        if (PositionHistory[uint3(id, 3)].z == 0
+        
+//        && PositionHistory[uint3(id, 4)].z != 0
+//        && PositionHistory[uint3(id, 5)].z != 0
+//        && PositionHistory[uint3(id, 6)].z != 0
+            
+//        && PositionHistory[uint3(id, 7)].z == 0)
+//            {
+//                if (!visualize)
+//                {
+//                    ColMapOut[id] = float4(0, 0, 0, 0);
+//                    PosMapOut[id] = float4(0, 0, 0, 0);
+
+//                }
+//                else
+//                    ColMapOut[id] = float4(0, 0, 1, 1);
+
+//            }
+        
+//        if (PositionHistory[uint3(id, 4)].z == 0
+        
+//        && PositionHistory[uint3(id, 5)].z != 0
+//        && PositionHistory[uint3(id, 6)].z != 0
+//        && PositionHistory[uint3(id, 7)].z != 0
+            
+//        && PositionHistory[uint3(id, 8)].z == 0)
+//            {
+//                if (!visualize)
+//                {
+//                    ColMapOut[id] = float4(0, 0, 0, 0);
+//                    PosMapOut[id] = float4(0, 0, 0, 0);
+
+//                }
+//                else
+//                    ColMapOut[id] = float4(0, 0, 1, 1);
+
+//            }
+        
+        
+//        if (PositionHistory[uint3(id, 1)].z == 0
+        
+//        && PositionHistory[uint3(id, 2)].z != 0
+//        && PositionHistory[uint3(id, 3)].z != 0
+//        && PositionHistory[uint3(id, 4)].z != 0
+//        && PositionHistory[uint3(id, 5)].z != 0
+            
+//        && PositionHistory[uint3(id, 6)].z == 0)
+//            {
+//                if (!visualize)
+//                {
+//                    ColMapOut[id] = float4(0, 0, 0, 0);
+//                    PosMapOut[id] = float4(0, 0, 0, 0);
+
+//                }
+//                else
+//                    ColMapOut[id] = float4(1, 0, 1, 1);
+
+//            }
+        
+//        if (PositionHistory[uint3(id, 2)].z == 0
+        
+//        && PositionHistory[uint3(id, 3)].z != 0
+//        && PositionHistory[uint3(id, 4)].z != 0
+//        && PositionHistory[uint3(id, 5)].z != 0
+//        && PositionHistory[uint3(id, 6)].z != 0
+            
+//        && PositionHistory[uint3(id, 7)].z == 0)
+//            {
+//                if (!visualize)
+//                {
+//                    ColMapOut[id] = float4(0, 0, 0, 0);
+//                    PosMapOut[id] = float4(0, 0, 0, 0);
+
+//                }
+//                else
+//                    ColMapOut[id] = float4(1, 0, 1, 1);
+
+//            }
+        
+//        if (PositionHistory[uint3(id, 3)].z == 0
+        
+//        && PositionHistory[uint3(id, 4)].z != 0
+//        && PositionHistory[uint3(id, 5)].z != 0
+//        && PositionHistory[uint3(id, 6)].z != 0
+//        && PositionHistory[uint3(id, 7)].z != 0
+            
+//        && PositionHistory[uint3(id, 8)].z == 0)
+//            {
+//                if (!visualize)
+//                {
+//                    ColMapOut[id] = float4(0, 0, 0, 0);
+//                    PosMapOut[id] = float4(0, 0, 0, 0);
+
+//                }
+//                else
+//                    ColMapOut[id] = float4(1, 0, 1, 1);
+
+//            }
+        
+//        if (PositionHistory[uint3(id, 4)].z == 0
+        
+//        && PositionHistory[uint3(id, 5)].z != 0
+//        && PositionHistory[uint3(id, 6)].z != 0
+//        && PositionHistory[uint3(id, 7)].z != 0
+//        && PositionHistory[uint3(id, 8)].z != 0
+            
+//        && PositionHistory[uint3(id, 9)].z == 0)
+//            {
+//                if (!visualize)
+//                {
+//                    ColMapOut[id] = float4(0, 0, 0, 0);
+//                    PosMapOut[id] = float4(0, 0, 0, 0);
+
+//                }
+//                else
+//                    ColMapOut[id] = float4(1, 0, 1, 1);
+
+//            }
+        
+//        if (PositionHistory[uint3(id, 0)].z != 0
+        
+//        && PositionHistory[uint3(id, 1)].z != 0
+//        && PositionHistory[uint3(id, 2)].z != 0
+//        && PositionHistory[uint3(id, 3)].z != 0
+//        && PositionHistory[uint3(id, 4)].z != 0
+//        && PositionHistory[uint3(id, 5)].z != 0
+            
+//        && PositionHistory[uint3(id, 6)].z == 0)
+//            {
+//                if (!visualize)
+//                {
+//                    ColMapOut[id] = float4(0, 0, 0, 0);
+//                    PosMapOut[id] = float4(0, 0, 0, 0);
+
+//                }
+//                else
+//                    ColMapOut[id] = float4(0, 1, 1, 1);
+
+//            }
+        
+//        if (PositionHistory[uint3(id, 1)].z == 0
+        
+//        && PositionHistory[uint3(id, 2)].z != 0
+//        && PositionHistory[uint3(id, 3)].z != 0
+//        && PositionHistory[uint3(id, 4)].z != 0
+//        && PositionHistory[uint3(id, 5)].z != 0
+//        && PositionHistory[uint3(id, 6)].z != 0
+            
+//        && PositionHistory[uint3(id, 7)].z == 0)
+//            {
+//                if (!visualize)
+//                {
+//                    ColMapOut[id] = float4(0, 0, 0, 0);
+//                    PosMapOut[id] = float4(0, 0, 0, 0);
+
+//                }
+//                else
+//                    ColMapOut[id] = float4(0, 1, 1, 1);
+
+//            }
+        
+//        if (PositionHistory[uint3(id, 2)].z == 0
+        
+//        && PositionHistory[uint3(id, 3)].z != 0
+//        && PositionHistory[uint3(id, 4)].z != 0
+//        && PositionHistory[uint3(id, 5)].z != 0
+//        && PositionHistory[uint3(id, 6)].z != 0
+//        && PositionHistory[uint3(id, 7)].z != 0
+            
+//        && PositionHistory[uint3(id, 8)].z == 0)
+//            {
+//                if (!visualize)
+//                {
+//                    ColMapOut[id] = float4(0, 0, 0, 0);
+//                    PosMapOut[id] = float4(0, 0, 0, 0);
+
+//                }
+//                else
+//                    ColMapOut[id] = float4(0, 1, 1, 1);
+
+//            }
+        
+//        if (PositionHistory[uint3(id, 3)].z == 0
+        
+//        && PositionHistory[uint3(id, 4)].z != 0
+//        && PositionHistory[uint3(id, 5)].z != 0
+//        && PositionHistory[uint3(id, 6)].z != 0
+//        && PositionHistory[uint3(id, 7)].z != 0
+//        && PositionHistory[uint3(id, 8)].z != 0
+            
+//        && PositionHistory[uint3(id, 9)].z == 0)
+//            {
+//                if (!visualize)
+//                {
+//                    ColMapOut[id] = float4(0, 0, 0, 0);
+//                    PosMapOut[id] = float4(0, 0, 0, 0);
+
+//                }
+//                else
+//                    ColMapOut[id] = float4(0, 1, 1, 1);
+
+//            }
+        
+//        if (PositionHistory[uint3(id, 4)].z == 0
+        
+//        && PositionHistory[uint3(id, 5)].z != 0
+//        && PositionHistory[uint3(id, 6)].z != 0
+//        && PositionHistory[uint3(id, 7)].z != 0
+//        && PositionHistory[uint3(id, 8)].z != 0
+//        && PositionHistory[uint3(id, 9)].z != 0
+            
+//        && PositionHistory[uint3(id, 10)].z == 0)
+//            {
+//                if (!visualize)
+//                {
+//                    ColMapOut[id] = float4(0, 0, 0, 0);
+//                    PosMapOut[id] = float4(0, 0, 0, 0);
+
+//                }
+//                else
+//                    ColMapOut[id] = float4(0, 1, 1, 1);
+
+//            }
+        
+//        }
+
+//    }
+    
+
+
+
+
+
+//void CSMain(uint2 id : SV_DispatchThreadID)
+//{
+//    PosMapOut[id] = PreviousFramesPosMap[0][id];
+//    ColMapOut[id] = PreviousFramesColMap[0][id];
+    
+//    if (PosMapRead[id].z == 0 && PreviousFramesPosMap[0][id].z != 0 && PreviousFramesPosMap[1][id].z == 0)
+//    {
+//        if (!visualize)
+//        {
+//            ColMapOut[id] = float4(0, 0, 0, 0);
+//            PosMapOut[id] = float4(0, 0, 0, 0);
+
+//        }
+//        else
+//            ColMapOut[id] = float4(1, 0, 0, 1);
+
+//    }
+    
+//    if (PosMapRead[id].z == 0 && PreviousFramesPosMap[0][id].z != 0 && PreviousFramesPosMap[1][id].z != 0 && PreviousFramesPosMap[2][id].z == 0)
+//    {
+//        if (!visualize)
+//        {
+//            ColMapOut[id] = float4(0, 0, 0, 0);
+//            PosMapOut[id] = float4(0, 0, 0, 0);
+
+//        }
+//        else
+//            ColMapOut[id] = float4(0, 1, 0, 1);
+
+//    }
+    
+//    if (PosMapRead[id].z == 0 && PreviousFramesPosMap[0][id].z != 0 && PreviousFramesPosMap[1][id].z != 0 && PreviousFramesPosMap[2][id].z != 0 && PreviousFramesPosMap[3][id].z == 0)
+//    {
+//        if (!visualize)
+//        {
+//            ColMapOut[id] = float4(0, 0, 0, 0);
+//            PosMapOut[id] = float4(0, 0, 0, 0);
+
+//        }
+//        else
+//            ColMapOut[id] = float4(0, 0, 1, 1);
+
+//    }
+//    if (PosMapRead[id].z == 0 && PreviousFramesPosMap[0][id].z != 0 && PreviousFramesPosMap[1][id].z != 0
+//        && PreviousFramesPosMap[2][id].z != 0 && PreviousFramesPosMap[3][id].z != 0
+//        && PreviousFramesPosMap[4][id].z == 0)
+//    {
+//        if (!visualize)
+//        {
+//            ColMapOut[id] = float4(0, 0, 0, 0);
+//            PosMapOut[id] = float4(0, 0, 0, 0);
+
+//        }
+//        else
+//            ColMapOut[id] = float4(1, 0, 1, 1);
+
+//    }
+//    if (PosMapRead[id].z == 0 && PreviousFramesPosMap[0][id].z != 0 && PreviousFramesPosMap[1][id].z != 0
+//        && PreviousFramesPosMap[2][id].z != 0 && PreviousFramesPosMap[3][id].z != 0
+//        && PreviousFramesPosMap[4][id].z != 0 && PreviousFramesPosMap[5][id].z == 0)
+//    {
+//        if (!visualize)
+//        {
+//            ColMapOut[id] = float4(0, 0, 0, 0);
+//            PosMapOut[id] = float4(0, 0, 0, 0);
+
+//        }
+//        else
+//            ColMapOut[id] = float4(0, 1, 1, 1);
+
+//    }
+//}

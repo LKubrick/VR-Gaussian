@@ -1,0 +1,466 @@
+#pragma kernel CSMain
+
+RWTexture2D<float4> PosMapOut; // Output position map
+RWTexture2D<float4> ColMapOut; // Output color map
+
+Texture2D<float4> PosMapRead; // Input position map
+Texture2D<float4> ColMapRead; // Input color map
+
+float depththrshld;
+int thickness; 
+int blurDensity; 
+float smoothingFactor; 
+bool depthOnly;
+
+[numthreads(8, 8, 1)]
+void CSMain(uint2 id : SV_DispatchThreadID)
+{
+    float4 centerColor = ColMapRead[id];
+    float4 centerPosition = PosMapRead[id];
+
+ 
+    bool isEdge = false;
+    
+    
+    if (thickness >=0)
+    {
+        for (int i = -thickness; i <= thickness; i++)
+        {
+            for (int j = -thickness; j <= thickness; j++)
+            {
+                if (i == 0 && j == 0)
+                    continue;
+
+                uint2 neighborCoord = id + int2(i, j);
+                if (neighborCoord.x < 0 || neighborCoord.y < 0)
+                    continue; 
+
+                float neighborDepth = PosMapRead[neighborCoord].z;
+                if (abs(centerPosition.z - neighborDepth) > depththrshld)
+                {
+                    isEdge = true;
+                    break;
+                }
+            }
+            if (isEdge)
+                break;
+        }
+    }
+
+
+    if (!isEdge)
+    {
+        ColMapOut[id] = centerColor;
+        PosMapOut[id] = centerPosition;
+        return;
+    }
+
+
+    float4 colorSum = float4(0, 0, 0, 0);
+    float4 positionSum = float4(0, 0, 0, 0);
+    float totalWeight = 0.0;
+
+    for (int t = -blurDensity; t <= blurDensity; t++)
+    {
+        for (int u = -blurDensity; u <= blurDensity; u++)
+        {
+   
+            uint2 sampleCoord = id + int2(t, u);
+            if (sampleCoord.x < 0 || sampleCoord.y < 0)
+                continue;
+
+            float4 sampleColor = ColMapRead[sampleCoord];
+            float4 samplePosition = PosMapRead[sampleCoord];
+
+     
+            if (samplePosition.z == 0)
+                continue;
+
+  
+            float distance = length(float2(t, u));
+            float weight = exp(-distance * smoothingFactor);
+
+            colorSum += sampleColor * weight;
+            positionSum += samplePosition * weight;
+            totalWeight += weight;
+        }
+    }
+
+
+    if (totalWeight > 0)
+    {
+        if (!depthOnly)
+        {
+            ColMapOut[id] = float4(colorSum.xyz / totalWeight, 1);
+
+        }
+        else
+        {
+            ColMapOut[id] = centerColor;
+        }
+            
+        
+        PosMapOut[id] = float4(positionSum.xyz / totalWeight, 1);
+    }
+    else
+    {
+        ColMapOut[id] = centerColor;
+
+        PosMapOut[id] = centerPosition;
+    }
+}
+
+//Utile pour countbits dpeht blurDensity global
+//#pragma kernel CSMain
+
+//RWTexture2D<float4> PosMapOut; // Output position map
+//RWTexture2D<float4> ColMapOut; // Output color map
+
+//Texture2D<float4> PosMapRead; // Input position map
+//Texture2D<float4> ColMapRead; // Input color map
+
+//float depththrshld;
+//int thickness;
+//float smoothingFactor;
+
+//[numthreads(8, 8, 1)]
+//void CSMain(uint2 id : SV_DispatchThreadID)
+//{
+//    float4 centerColor = ColMapRead[id];
+//    float4 centerPosition = PosMapRead[id];
+
+
+//    bool isEdge = false;
+//    for (int i = -1; i <= 1; i++)
+//    {
+//        for (int j = -1; j <= 1; j++)
+//        {
+//            if (i == 0 && j == 0)
+//                continue;
+
+//            uint2 neighborCoord = id + int2(i, j);
+//            if (neighborCoord.x < 0 || neighborCoord.y < 0)
+//                continue; // Hors limites
+
+//            float neighborDepth = PosMapRead[neighborCoord].z;
+//            if (abs(centerPosition.z - neighborDepth) > depththrshld)
+//            {
+//                isEdge = true;
+//                break;
+//            }
+//        }
+//        if (isEdge)
+//            break;
+//    }
+
+
+//    if (!isEdge)
+//    {
+//        ColMapOut[id] = centerColor;
+//        PosMapOut[id] = centerPosition;
+//        return;
+//    }
+
+
+//    float4 colorSum = float4(0, 0, 0, 0);
+//    float4 positionSum = float4(0, 0, 0, 0);
+//    float totalWeight = 0.0;
+
+//    for (int t = -thickness; t <= thickness; t++)
+//    {
+//        for (int u = -thickness; u <= thickness; u++)
+//        {
+       
+//            if (abs(t) != thickness && abs(u) != thickness)
+//                continue;
+
+//            uint2 sampleCoord = id + int2(t, u);
+//            if (sampleCoord.x < 0 || sampleCoord.y < 0)
+//                continue;
+
+//            float4 sampleColor = ColMapRead[sampleCoord];
+//            float4 samplePosition = PosMapRead[sampleCoord];
+
+
+//            if (samplePosition.z == 0)
+//                continue;
+
+
+//            float distance = length(float2(t, u));
+//            float weight = exp(-distance * smoothingFactor);
+
+//            colorSum += sampleColor * weight;
+//            positionSum += samplePosition * weight;
+//            totalWeight += weight;
+//        }
+//    }
+
+
+//    if (totalWeight > 0)
+//    {
+//        ColMapOut[id] = colorSum / totalWeight;
+//        //ColMapOut[id] = centerColor;
+//        PosMapOut[id] = positionSum / totalWeight;
+//    }
+//    else
+//    {
+//        ColMapOut[id] = centerColor;
+//        PosMapOut[id] = centerPosition;
+//    }
+//}
+
+////MSAA
+
+//#pragma kernel CSMain
+
+//RWTexture2D<float4> PosMapOut;
+//RWTexture2D<float4> ColMapOut; // Output for debugging
+
+//Texture2D<float4> PosMapRead;
+//Texture2D<float4> ColMapRead; // Input for debugging
+
+//int SamplingRate; // MSAA level: 0, 4, 8, or 16
+////float edgeThreshold; // Threshold for detecting edges based on depth differences
+//int thickness; // Thickness of the edge smoothing region
+
+//// Predefined offsets for sampling
+//static const int2 sampleOffsets16[16] =
+//{
+//    int2(-1, -1), int2(0, -1), int2(1, -1), int2(2, -1),
+//    int2(-1, 0), int2(0, 0), int2(1, 0), int2(2, 0),
+//    int2(-1, 1), int2(0, 1), int2(1, 1), int2(2, 1),
+//    int2(-1, 2), int2(0, 2), int2(1, 2), int2(2, 2)
+//};
+
+//[numthreads(8, 8, 1)]
+//void CSMain(uint2 id : SV_DispatchThreadID)
+//{
+//    float4 centerColor = ColMapRead[id];
+//    float4 centerPosition = PosMapRead[id];
+
+//    // If no MSAA is requested, simply copy the data
+//    if (SamplingRate == 0)
+//    {
+//        ColMapOut[id] = centerColor;
+//        PosMapOut[id] = centerPosition;
+//        return;
+//    }
+
+//    // Detect if the pixel is part of the "tranche" region
+//    bool inEdgeBand = false;
+
+//    for (int t = 1; t <= thickness; t++) // Iterate over the thickness range
+//    {
+//        bool hasValidNeighbor = false;
+//        bool hasInvalidNeighbor = false;
+
+//        for (int i = -t; i <= t; i++)
+//        {
+//            for (int j = -t; j <= t; j++)
+//            {
+//                if (i == 0 && j == 0)
+//                    continue;
+
+//                uint2 neighbor = id + int2(i, j);
+
+//                if (neighbor.x >= 0 && neighbor.y >= 0)
+//                {
+//                    float neighborDepth = PosMapRead[neighbor].z;
+//                    if (neighborDepth != 0)
+//                        hasValidNeighbor = true;
+//                    else
+//                        hasInvalidNeighbor = true;
+
+//                    // If both valid and invalid neighbors exist, it's part of the edge band
+//                    if (hasValidNeighbor && hasInvalidNeighbor)
+//                    {
+//                        inEdgeBand = true;
+//                        break;
+//                    }
+//                }
+//            }
+//            if (inEdgeBand)
+//                break;
+//        }
+
+//        // Stop checking further distances if already in the edge band
+//        if (inEdgeBand)
+//            break;
+//    }
+
+//    // If not in the edge band, keep the original pixel data
+//    if (!inEdgeBand)
+//    {
+//        ColMapOut[id] = centerColor;
+//        PosMapOut[id] = centerPosition;
+//        return;
+//    }
+
+//    // Apply MSAA for pixels in the edge band
+//    int2 offsets[16];
+//    int sampleCount = 0;
+
+//    if (SamplingRate == 4)
+//    {
+//        offsets[0] = int2(-1, -1);
+//        offsets[1] = int2(1, -1);
+//        offsets[2] = int2(-1, 1);
+//        offsets[3] = int2(1, 1);
+//        sampleCount = 4;
+//    }
+//    else if (SamplingRate == 8)
+//    {
+//        for (int i = 0; i < 8; i++)
+//            offsets[i] = sampleOffsets16[i];
+//        sampleCount = 8;
+//    }
+//    else if (SamplingRate == 16)
+//    {
+//        for (int i = 0; i < 16; i++)
+//            offsets[i] = sampleOffsets16[i];
+//        sampleCount = 16;
+//    }
+//    else
+//    {
+//        // Invalid SamplingRate, fallback to no MSAA
+//        ColMapOut[id] = centerColor;
+//        PosMapOut[id] = centerPosition;
+//        return;
+//    }
+
+//    float4 colorSum = float4(0, 0, 0, 0);
+//    float4 positionSum = float4(0, 0, 0, 0);
+//    float totalWeight = 0.0;
+
+//    for (int i = 0; i < sampleCount; i++)
+//    {
+//        uint2 sampleCoord = id + offsets[i];
+
+//        // Ensure sample is within bounds
+//        if (sampleCoord.x >= 0 && sampleCoord.y >= 0)
+//        {
+//            float4 sampleColor = ColMapRead[sampleCoord];
+//            float4 samplePosition = PosMapRead[sampleCoord];
+
+//            // Only include valid samples (non-zero depth)
+//            if (samplePosition.z != 0)
+//            {
+//                colorSum += sampleColor;
+//                positionSum += samplePosition;
+//                totalWeight += 1.0;
+//            }
+//        }
+//    }
+
+//    // Average the accumulated samples
+//    if (totalWeight > 0)
+//    {
+//        ColMapOut[id] = colorSum / totalWeight;
+//        PosMapOut[id] = positionSum / totalWeight;
+//    }
+//    else
+//    {
+//        // Default to the original center pixel if no valid samples
+//        ColMapOut[id] = centerColor;
+//        PosMapOut[id] = centerPosition;
+//    }
+    
+
+//}
+
+
+
+//Filtre simple supprime pixel isole et ajoute un pixel pour lisser
+//#pragma kernel CSMain
+
+//RWTexture2D<float4> PosMapOut;
+//RWTexture2D<float4> ColMapOut; //keep it for debug
+
+//Texture2D<float4> PosMapRead;
+//Texture2D<float4> ColMapRead; //keep it for debug
+
+//float depththrshld;
+
+
+
+//[numthreads(8, 8, 1)]
+//void CSMain(uint2 id : SV_DispatchThreadID)
+//{
+//    //float4 col = ColMapRead.Load(int3(id.xy, 0)); to keep in mind
+    
+//    //DEBUG
+//    //ColMapOut[id] = float4(1, ColMapRead[id].gb, 1);
+//    //PosMapOut[id] = PosMapRead[id];
+//    ColMapOut[id] = ColMapRead[id];
+//    PosMapOut[id] = PosMapRead[id];
+    
+   
+    
+//    if (PosMapRead[uint2(id.x, id.y)].z != 0)
+//    {
+//        if (PosMapRead[uint2(id.x - 1, id.y)].z == 0 && PosMapRead[uint2(id.x + 1, id.y)].z == 0)
+//        {
+//            ColMapOut[id] = float4(0, 0, 0, 0);
+//            PosMapOut[id] = float4(0, 0, 0, 0);
+
+
+//        }
+    
+//        if (PosMapRead[uint2(id.x - 1, id.y + 1)].z == 0 && PosMapRead[uint2(id.x + 1, id.y - 1)].z == 0)
+//        {
+//            ColMapOut[id] = float4(0, 0, 0, 0);
+//            PosMapOut[id] = float4(0, 0, 0, 0);
+   
+//        }
+    
+//        if (PosMapRead[uint2(id.x, id.y + 1)].z == 0 && PosMapRead[uint2(id.x, id.y - 1)].z == 0)
+//        {
+//            ColMapOut[id] = float4(0, 0, 0, 0);
+//            PosMapOut[id] = float4(0, 0, 0, 0);
+
+//        }
+        
+//        if (PosMapRead[uint2(id.x - 1, id.y - 1)].z == 0 && PosMapRead[uint2(id.x + 1, id.y + 1)].z == 0)
+//        {
+//            ColMapOut[id] = float4(0, 0, 0, 0);
+//            PosMapOut[id] = float4(0, 0, 0, 0);
+      
+//        }
+       
+//    }
+//    if (PosMapRead[uint2(id.x, id.y)].z == 0)
+//    {
+//        if (PosMapRead[uint2(id.x - 1, id.y)].z > 0.001 && PosMapRead[uint2(id.x + 1, id.y)].z > 0.001)
+//        {
+//            ColMapOut[id] = (ColMapRead[uint2(id.x - 1, id.y)] + ColMapRead[uint2(id.x + 1, id.y)]) / 2;
+//            PosMapOut[id] = (PosMapRead[uint2(id.x - 1, id.y)] + PosMapRead[uint2(id.x + 1, id.y)]) / 2;
+         
+
+//        }
+    
+//        if (PosMapRead[uint2(id.x - 1, id.y + 1)].z > 0.001 && PosMapRead[uint2(id.x + 1, id.y - 1)].z > 0.001)
+//        {
+//            ColMapOut[id] = (ColMapRead[uint2(id.x - 1, id.y + 1)] + ColMapRead[uint2(id.x + 1, id.y - 1)]) / 2;
+//            PosMapOut[id] = (PosMapRead[uint2(id.x - 1, id.y + 1)] + PosMapRead[uint2(id.x + 1, id.y - 1)]) / 2;
+          
+//        }
+    
+//        if (PosMapRead[uint2(id.x, id.y + 1)].z > 0.001 && PosMapRead[uint2(id.x, id.y - 1)].z > 0.001)
+//        {
+//            ColMapOut[id] = (ColMapRead[uint2(id.x, id.y + 1)] + ColMapRead[uint2(id.x, id.y - 1)]) / 2;
+//            PosMapOut[id] = (PosMapRead[uint2(id.x, id.y + 1)] + PosMapRead[uint2(id.x, id.y - 1)]) / 2;
+    
+//        }
+        
+//        if (PosMapRead[uint2(id.x - 1, id.y - 1)].z > 0.001 && PosMapRead[uint2(id.x + 1, id.y + 1)].z > 0.001)
+//        {
+//            ColMapOut[id] = (ColMapRead[uint2(id.x - 1, id.y - 1)] + ColMapRead[uint2(id.x + 1, id.y + 1)]) / 2;
+//            PosMapOut[id] = (PosMapRead[uint2(id.x - 1, id.y - 1)] + PosMapRead[uint2(id.x + 1, id.y + 1)]) / 2;
+        
+//        }
+       
+//    }
+    
+    
+
+//}

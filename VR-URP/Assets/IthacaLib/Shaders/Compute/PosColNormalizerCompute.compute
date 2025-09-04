@@ -1,0 +1,21 @@
+#pragma kernel CSMain
+
+RWTexture2D<float4> PosMapIn; //B8G8R8A8_UNORM from AVPro but transformed, somehow, in float4 ie 128bits
+RWTexture2D<float4> ColMapIn;
+
+[numthreads(8,8,1)]
+void CSMain (uint2 id : SV_DispatchThreadID)
+{
+    if (PosMapIn[id].w > 0)
+    {
+        PosMapIn[id] = float4(PosMapIn[id].x, PosMapIn[id].y, PosMapIn[id].z, 1);
+        ColMapIn[id] = float4(ColMapIn[id].r, ColMapIn[id].g, ColMapIn[id].b, 1);
+        
+    }
+    else
+    {
+        PosMapIn[id] = float4(0,0, 0, 0);
+        ColMapIn[id] = float4(0, 0, 0, 0);
+    }
+
+}

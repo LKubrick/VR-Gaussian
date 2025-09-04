@@ -1,0 +1,64 @@
+#pragma kernel CSMain
+
+RWTexture3D<float4> PCVoxelsOut; //B8G8R8A8_UNORM from AVPro but transformed, somehow, in float4 ie 128bits
+//RWTexture2D<float4> ColMapOut; //keep it for debug
+
+Texture2D<float4> PosMapRead;
+Texture2D<float4> ColMapRead;
+
+//origin is bottom left unlike the texture2D order
+float4 O;
+float4 X;
+float4 Y;
+float4 Z;
+
+int orthoWidth;
+int orthoHeight;
+int orthoDepth;
+
+bool LastFusion;
+int FusionCount;
+
+float depthThrsld;
+
+[numthreads(8,8,1)]
+void CSMain (uint2 id : SV_DispatchThreadID)
+{
+    /*uint ReadWidth;
+    uint ReadHeight;
+    PosMapRead.GetDimensions(ReadWidth, ReadHeight);
+    uint2 idRead = uint2(id.x, ReadHeight - id.y);*/
+    
+    int idX;
+    int idY;
+    int idZ;
+    
+     //Calculate the pixel Width,Height and Depth
+    float pixelWidth = abs(distance(X, O)) / orthoWidth;
+    float pixelHeight = abs(distance(Y, O)) / orthoHeight;
+    float pixelDepth = abs(distance(Z, O)) / orthoDepth;
+    
+     //Normal calculation - Keijiro uses the 4th pixel before and after in x and y to make a cross product
+    /*float3 normZaxis = normalize(Z.xyz - O.xyz);
+    float3 p_x0 = PosMapRead[uint2(id.x - 4, id.y)].xyz - O.xyz;
+    float3 p_x1 = PosMapRead[uint2(id.x + 4, id.y)].xyz - O.xyz;
+    float3 p_y0 = PosMapRead[uint2(id.x, id.y - 4)].xyz - O.xyz;
+    float3 p_y1 = PosMapRead[uint2(id.x, id.y + 4)].xyz - O.xyz;
+    float3 normal = normalize(cross(p_x1 - p_x0, p_y1 - p_y0));*/
+    
+    //Calculate the id of the Out texture according to the read texture particle position x and y for cube front
+    idX = floor((PosMapRead[id].x - O.x) / pixelWidth);
+    idY = floor((PosMapRead[id].y - O.y) / pixelHeight);
+    idZ = floor((PosMapRead[id].z - O.z) / pixelDepth);
+
+    //DEBUG 
+    //PosMapOut[uint2(idX, idY)] = PosMapRead[id];
+    //ColMapOut[uint2(idX, idY)] = ColMapRead[id];
+    
+    PCVoxelsOut[uint3(idX, idY, idZ)] = float4(ColMapRead[id].rgb, 1);
+
+    
+    //Difference with the Cube Ortho Fusion: Theorically the fused x,y and z values must correspond to the pixel id.x,id.y or id.z value   
+    
+    //PCVoxelsOut[uint3(idX, idY, idZ)] = float4(1, 0, 0, 1); 
+}

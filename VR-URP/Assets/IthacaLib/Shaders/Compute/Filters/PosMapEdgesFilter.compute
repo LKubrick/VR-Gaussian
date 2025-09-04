@@ -1,0 +1,154 @@
+#pragma kernel CSMain
+
+RWTexture2D<float4> PosMapRead; //B8G8R8A8_UNORM from AVPro but transformed, somehow, in float4 ie 128bits
+RWTexture2D<float4> ColMapRead;
+float depththrshld; //edge filter depth
+uint topthick; //top edge thickeness
+uint rightthick; //right edge thickness
+uint bottomthick;
+uint leftthick;
+bool visualize;
+
+
+[numthreads(8,8,1)]
+void CSMain (uint2 id : SV_DispatchThreadID)
+{
+    /*if ((abs(PosMapRead[uint2(id.x, id.y)].z - PosMapRead[uint2(id.x, id.y - 1)].z) > depththrshld))
+    {		
+        PosMapRead[id] = float4(PosMapRead[id].x, PosMapRead[id].y, PosMapRead[id].z, 0);
+        
+        for (int j = 1; j < righthick; j++)
+        {
+                PosMapRead[uint2(id.x, id.y + j)] = float4(PosMapRead[id].x, PosMapRead[id].y, PosMapRead[id].z, 0);
+                PosMapRead[uint2(id.x, id.y - j)] = float4(PosMapRead[id].x, PosMapRead[id].y, PosMapRead[id].z, 0);               
+        }
+    }
+    
+    if ((abs(PosMapRead[uint2(id.x, id.y)].z - PosMapRead[uint2(id.x - 1, id.y)].z) > depththrshld))
+    {		
+        PosMapRead[id]= float4(PosMapRead[id].x, PosMapRead[id].y, PosMapRead[id].z,0);
+        
+        for (int j = 1; j < topthick; j++)
+        {
+                PosMapRead[uint2(id.x + j, id.y)] = float4(PosMapRead[id].x, PosMapRead[id].y, PosMapRead[id].z, 0);
+                PosMapRead[uint2(id.x - j, id.y)] = float4(PosMapRead[id].x, PosMapRead[id].y, PosMapRead[id].z, 0);
+        }
+    }*/
+    
+    //New simpler method - Only available for PC only cos we use the same RenderTextures in input and output (RW impossible for Android)
+    
+    if (visualize)
+    {
+        if (abs(PosMapRead[uint2(id.x, id.y)].z - PosMapRead[uint2(id.x + topthick, id.y)].z) > depththrshld)
+        {
+            
+            ColMapRead[id] = float4(0, 0, 0, 1);
+        
+        }
+    
+        if (abs(PosMapRead[uint2(id.x, id.y)].z - PosMapRead[uint2(id.x, id.y - rightthick)].z) > depththrshld)
+        {
+            
+            ColMapRead[id] = float4(0, 0, 0, 1);
+        
+        }
+    
+        if (abs(PosMapRead[uint2(id.x, id.y)].z - PosMapRead[uint2(id.x - bottomthick, id.y)].z) > depththrshld)
+        {
+            
+            ColMapRead[id] = float4(0, 0, 0, 1);
+        
+        }
+    
+        if (abs(PosMapRead[uint2(id.x, id.y)].z - PosMapRead[uint2(id.x, id.y + leftthick)].z) > depththrshld)
+        {
+            
+            ColMapRead[id] = float4(0, 0, 0, 1);
+        
+        }
+    }
+    else
+    {
+        if (abs(PosMapRead[uint2(id.x, id.y)].z - PosMapRead[uint2(id.x + topthick, id.y)].z) > depththrshld)
+        {
+            
+            PosMapRead[id] = float4(PosMapRead[id].x, PosMapRead[id].y, PosMapRead[id].z, 0);
+        
+        }
+    
+        if (abs(PosMapRead[uint2(id.x, id.y)].z - PosMapRead[uint2(id.x, id.y - rightthick)].z) > depththrshld)
+        {
+            
+            PosMapRead[id] = float4(PosMapRead[id].x, PosMapRead[id].y, PosMapRead[id].z, 0);
+        
+        }
+    
+        if (abs(PosMapRead[uint2(id.x, id.y)].z - PosMapRead[uint2(id.x - bottomthick, id.y)].z) > depththrshld)
+        {
+            
+            PosMapRead[id] = float4(PosMapRead[id].x, PosMapRead[id].y, PosMapRead[id].z, 0);
+        
+        }
+    
+        if (abs(PosMapRead[uint2(id.x, id.y)].z - PosMapRead[uint2(id.x, id.y + leftthick)].z) > depththrshld)
+        {
+            
+            PosMapRead[id] = float4(PosMapRead[id].x, PosMapRead[id].y, PosMapRead[id].z, 0);
+        
+        }
+    }
+        
+        
+    
+    /* Old Method 
+    
+    for (int i = 0; i < bottomthick; i++)
+    {
+        if (abs(PosMapRead[uint2(id.x, id.y)].z - PosMapRead[uint2(id.x - i-1, id.y)].z) > depththrshld)
+        {      
+            if (visualize)
+                ColMapRead[id] = float4(0, 0, 0, 1);  
+            else 
+                PosMapRead[id] = float4(PosMapRead[id].x, PosMapRead[id].y, PosMapRead[id].z, 0);
+            break;
+        }
+    }
+    
+    for (int j = 0; j < rightthick; j++)
+    {
+        if (abs(PosMapRead[uint2(id.x, id.y)].z - PosMapRead[uint2(id.x, id.y-j-1)].z) > depththrshld)
+        {
+            if (visualize)
+                ColMapRead[id] = float4(0, 0, 0, 1);
+            else
+                PosMapRead[id] = float4(PosMapRead[id].x, PosMapRead[id].y, PosMapRead[id].z, 0);
+            break;
+        }
+    }
+    for (int k = 0; k < topthick; k++)
+    {
+        if (abs(PosMapRead[uint2(id.x, id.y)].z - PosMapRead[uint2(id.x + k+1, id.y)].z) > depththrshld)
+        {
+            if (visualize)
+                ColMapRead[id] = float4(0, 0, 0, 1);
+            else
+                PosMapRead[id] = float4(PosMapRead[id].x, PosMapRead[id].y, PosMapRead[id].z, 0);
+            break;
+        }
+    }
+    
+    for (int l = 0; l < leftthick; l++)
+    {
+        if (abs(PosMapRead[uint2(id.x, id.y)].z - PosMapRead[uint2(id.x, id.y + l+1)].z) > depththrshld)
+        {
+            if (visualize)
+                ColMapRead[id] = float4(0, 0, 0, 1);
+            else
+                PosMapRead[id] = float4(PosMapRead[id].x, PosMapRead[id].y, PosMapRead[id].z, 0);
+            break;
+        }
+    }
+    
+    */
+
+}

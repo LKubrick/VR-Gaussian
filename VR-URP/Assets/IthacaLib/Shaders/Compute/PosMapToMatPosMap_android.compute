@@ -1,0 +1,14 @@
+#pragma kernel CSMain
+
+float4x4 TransformMat;
+Texture2D<float4> PosMapIn; //B8G8R8A8_UNORM from AVPro but transformed, somehow, in float4 ie 128bits
+RWTexture2D<float4> PosMapOut;
+[numthreads(8, 8, 1)]
+void CSMain(uint2 id : SV_DispatchThreadID)
+{
+
+    //Applique la matrice de transformation au vertex3 avec une coordonnee homogene de 1
+    float3 position = PosMapIn[id].xyz;
+    float3 newPosition = mul(TransformMat, float4(position, 1.0)).rgb;
+    PosMapOut[id] = float4(newPosition, PosMapIn[id].a);
+}

@@ -1,0 +1,230 @@
+#pragma kernel CSMain
+
+Buffer<float> XYTable;
+Texture2D<float4> CombinedIn; //B8G8R8A8_UNORM from AVPro but transformed, somehow, in float4 ie 128bits
+RWTexture2D<float4> ColorsOut;
+RWTexture2D<float4> PositionsOut;
+
+uint Width;
+uint Height;
+uint GlobalHeight;
+uint EncodeShift;
+float EncodeMulti;
+bool UnitySc;
+uint MethodIndex;
+bool OrthoProjected;
+bool PerspProjected;
+float ProjectionScreenWidth;
+float ProjectionScreenHeight;
+float ScreenCameraDistance;
+float OrthoProjectionCubeScale;
+bool IsSRGB;
+
+//HSV decoder functions
+float Epsilon = 1e-10;
+ 
+float3 RGBtoHCV(in float3 RGB)
+{
+    // Based on work by Sam Hocevar and Emil Persson
+    float4 P = (RGB.g < RGB.b) ? float4(RGB.bg, -1.0, 2.0 / 3.0) : float4(RGB.gb, 0.0, -1.0 / 3.0);
+    float4 Q = (RGB.r < P.x) ? float4(P.xyw, RGB.r) : float4(RGB.r, P.yzx);
+    float C = Q.x - min(Q.w, Q.y);
+    float H = abs((Q.w - Q.y) / (6 * C + Epsilon) + Q.z);
+    return float3(H, C, Q.x);
+}
+float3 RGBtoHSV(in float3 RGB)
+{
+    float3 HCV = RGBtoHCV(RGB);
+    float S = HCV.y / (HCV.z + Epsilon);
+    return float3(HCV.x, S, HCV.z);
+}
+
+
+[numthreads(8, 8, 1)]
+void CSMain(uint2 id : SV_DispatchThreadID)
+{
+        // Buffer index
+    //REMARK: Keijiro made a top down bottom up inversion here that is not needed anymore now. Old line = uint idx = ((Height - 1 - id.y) << 1) * Width + (id.x << 1);
+    uint idx = (id.y << 1) * Width + (id.x << 1);
+    float4 incomingDepth;
+    float4 color;
+    
+    //gamma correction depending on sRGB or not - may be improved by always applying the pow (no more if else) : 1 if linear, 1/2.2 if sRGB  
+    if (IsSRGB)
+    {
+        incomingDepth = float4(pow(CombinedIn[id].xyz, 1 / 2.2), CombinedIn[id].w);
+        color = float4(pow(CombinedIn[uint2(id.x + Width, id.y)].xyz, 1 / 2.2), CombinedIn[uint2(id.x + Width, id.y)].w);
+    }
+    else
+    {
+        incomingDepth = CombinedIn[id];
+        color = CombinedIn[uint2(id.x + Width, id.y)];
+    }
+
+    
+    float decodedDepth;
+    float mask = 1.0;
+    
+    uint encode255shift = EncodeShift;
+    
+    
+    
+    //Reminder - 0 : Undefined, 1 : Encode255, 2 : Bitriangle, 3 : HSVHue,  4 : Encode255plus
+        //Methode decode 255plus attention r et b inverses par rapport a l encodeur
+    
+    if (MethodIndex == uint(1)) //Encode 255
+    {
+        float4 depth = incomingDepth * 255;
+        uint bornes_0 = encode255shift;
+        uint bornes_1 = encode255shift + 256 * EncodeMulti;
+        uint bornes_2 = encode255shift + 512 * EncodeMulti;
+        uint bornes_3 = encode255shift + 768 * EncodeMulti;
+        uint bornes_4 = encode255shift + 1024 * EncodeMulti;
+        uint bornes_5 = encode255shift + 1280 * EncodeMulti;
+        uint bornes_6 = encode255shift + 1516 * EncodeMulti; //On enleve 20 parce que c est le changement vers le blanc rose et on ne va que de 0 a 235
+        uint bornes_7 = encode255shift + 1752 * EncodeMulti;
+        uint bornes_8 = encode255shift + 1988 * EncodeMulti;
+        uint bornes_9 = encode255shift + 2204 * EncodeMulti; //On enleve encore 20 de plus de borne a borne de 20 a 235 
+        uint bornes_10 = encode255shift + 2420 * EncodeMulti;
+    //bleu a cyan
+        if (depth.r > 247 && depth.b < 8)
+        {
+            decodedDepth = bornes_0 + depth.g * EncodeMulti;
+        }
+    //cyan a vert
+        else if (depth.g > 247 && depth.b < 8)
+        {
+            decodedDepth = bornes_1 + (255 - depth.r) * EncodeMulti;
+        }
+    // vert a jaune
+        else if (depth.r < 8 && depth.g > 247)
+        {
+            decodedDepth = bornes_2 + depth.b * EncodeMulti;
+        }
+    //jaune a rouge
+        else if (depth.r < 8 && depth.b > 247)
+        {
+            decodedDepth = bornes_3 + (255 - depth.g) * EncodeMulti;
+        }
+    //de rouge a magenta
+        else if (depth.g < 8 && depth.b > 247)
+        {
+            decodedDepth = bornes_4 + depth.r * EncodeMulti;
+        }
+    //de magenta a blanc rose
+        else if (depth.b > 247 && depth.r > 247)
+        {
+            decodedDepth = bornes_5 + depth.g * EncodeMulti;
+        }
+    
+  //  //de blanc rose a bleu clair
+  //  else if (depth.g > 230 && depth.g < 240 && depth.r > 250)
+  ////  else if (230 < depth.g < 240 && depth.r > 250)  //It seems we can write it like this for simplifaction, need some testing to confirm anyway
+  //  {
+  //      decodedDepth = (bornes_6 + (255 - depth.b));
+  //  }
+  //  //de bleu clair a vert clair
+  //  else if (230 < depth.g && depth.g < 240 && depth.b > 15 && depth.b < 25)
+  //  {
+  //      decodedDepth = (bornes_7 + (255 - depth.r));
+  //  }
+  //  //vert clair a jaune clair
+  //  else if (depth.r > 15 && depth.r < 25 && depth.g > 230 && depth.g < 240)
+  //  {
+  //      decodedDepth = (bornes_8 + depth.b - 20);
+  //  }
+  //  //jaune clair a rouge clair
+  //  else if (depth.r > 15 && depth.r < 25 && depth.b > 230 && depth.b < 240)
+  //  {
+  //      decodedDepth = (bornes_9 + (235 - depth.g));
+  //  }
+  //  //rouge clair a magenta clair
+  //  else if (depth.b > 230 && depth.b < 240 && depth.g > 15 & depth.g < 25)
+  //  {
+  //      decodedDepth = (bornes_10 + depth.r - 20);
+  //  }
+        else
+        {
+            decodedDepth = 2000;
+            //xy = float2(0, 0);
+            mask = 0;
+        }
+    }
+    else if (MethodIndex == uint(3)) //HSV Hue // To be tested with an export
+    {
+        float3 decodedHSV = RGBtoHSV(incomingDepth.rgb);
+        
+        if (decodedHSV.z > 0.8)
+            decodedDepth = (decodedHSV.x) * 1280 * EncodeMulti + EncodeShift;
+        else
+        {
+            decodedDepth = 2000;
+            //xy = float2(0, 0);
+            mask = 0;
+        }
+    }
+    else // The position and color map will be empty because the chosen decoding method is not implemented
+    {
+        return;
+    }
+    
+    //FIXME: Dirty hack for getting rid of this ugly line appearing in front of the model, due to some values passing beyond the last borne to find themselves back to the first borne
+    if (decodedDepth < encode255shift + 5)
+        mask = 0;
+
+    // XY table lookup
+
+
+    //float mask = decodedDepth > EncodeShift + 0.2 && decodedDepth < EncodeShift + 20;
+    //float mask = decodedDepth > EncodeShift;
+    
+    if (OrthoProjected == false && PerspProjected == false)
+    {
+        float2 xy = float2(XYTable[idx], XYTable[idx + 1]);
+        if (UnitySc)
+        {
+            PositionsOut[id] = float4(xy.x * decodedDepth * 0.001, xy.y * decodedDepth * -0.001, decodedDepth * 0.001, mask);
+        }
+        else
+        {
+            PositionsOut[id] = float4(xy.x * decodedDepth, xy.y * decodedDepth, decodedDepth, mask);
+        }
+    }
+    else if (OrthoProjected == true) // case ortho projected //should be this, need to be tested with a real ortho cubic projection
+    {
+
+        if (UnitySc)
+        {
+            PositionsOut[id] = float4((float) id.x / Width * OrthoProjectionCubeScale, (float) id.y / Height * OrthoProjectionCubeScale, decodedDepth * 0.001, mask); //WARNING might need a "* - 0.001" to the Y to have a real Unity Scale
+        }
+        else
+        {
+            PositionsOut[id] = float4((float) id.x / Width * OrthoProjectionCubeScale, (float) (id.y / Height) * OrthoProjectionCubeScale, decodedDepth, mask);
+        }
+    }
+    else // case perspective projection
+    {
+        if (UnitySc)
+        {
+            decodedDepth *= 0.001f;
+        }
+        float3 cameraPos = float3(ProjectionScreenWidth / 2, ProjectionScreenHeight / 2, -ScreenCameraDistance);
+        float posX = (float) id.x * (ProjectionScreenWidth / (float) Width);
+        float posY = (float) id.y * (ProjectionScreenHeight / (float) Height);
+        float3 cameraToPointVector = (float3(posX - cameraPos.x, posY - cameraPos.y, ScreenCameraDistance)); // since the point is on the XY plane for Z = 0
+        
+        float unprojectedX = posX + cameraToPointVector.x * decodedDepth / ScreenCameraDistance;
+        float unprojectedY = posY + cameraToPointVector.y * decodedDepth / ScreenCameraDistance;
+
+        PositionsOut[id] = float4(unprojectedX, unprojectedY, decodedDepth, mask);
+        
+    }
+    
+    //PositionsOut[id] = float4(1, 0, 0, mask);
+    ColorsOut[id] = float4(pow(color.rgb, 1.8), mask);
+    
+    //if (ColorsOut[id].r == 0 && ColorsOut[id].g == 0 && ColorsOut[id].b == 0)
+    //{
+    //    PositionsOut[id] = float4(0, 0, 0, 0);
+    //}
+}

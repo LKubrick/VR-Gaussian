@@ -1,0 +1,23 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ce6a139dbcfa343479c55d00f9eac17c, type: 3}
+  m_Name: PointCloudGraphs-FullOptions
+  m_EditorClassIdentifier: 
+  graphs:
+  - capacity: 92160
+    graph: {fileID: 8926484042661614526, guid: ac1c0f999c665a440b05c61529f12c27, type: 3}
+  - capacity: 368640
+    graph: {fileID: 8926484042661614526, guid: ae97b5d155eb76145b81034ad61780f6, type: 3}
+  - capacity: 921600
+    graph: {fileID: 8926484042661614526, guid: 05eae70aafdfc294d944d45bc03baee7, type: 3}
+  - capacity: 1638400
+    graph: {fileID: 8926484042661614526, guid: e604ddae0154c69489cf49c980c4fb6d, type: 3}

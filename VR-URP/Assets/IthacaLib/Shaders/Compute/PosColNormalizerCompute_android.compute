@@ -1,0 +1,24 @@
+#pragma kernel CSMain
+
+Texture2D<float4> PosMapIn;
+Texture2D<float4> ColMapIn;
+
+RWTexture2D<float4> PosMapOut;
+RWTexture2D<float4> ColMapOut;
+
+[numthreads(8,8,1)]
+void CSMain (uint2 id : SV_DispatchThreadID)
+{
+    if (PosMapIn[id].w > 0)
+    {
+        PosMapOut[id] = float4(PosMapIn[id].x, PosMapIn[id].y, PosMapIn[id].z, 1);
+        ColMapOut[id] = float4(ColMapIn[id].r, ColMapIn[id].g, ColMapIn[id].b, 1);
+        
+    }
+    else
+    {
+        PosMapOut[id] = float4(0, 0, 0, 0);
+        ColMapOut[id] = float4(0, 0, 0, 0);
+    }
+
+}
