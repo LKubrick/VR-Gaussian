@@ -11,9 +11,12 @@ EditorBuildSettings:
   - enabled: 0
     path: Assets/Demo.unity
     guid: d7db1c5e9e3bd1841b445942758be212
-  - enabled: 1
+  - enabled: 0
     path: Assets/Scenes/FirstTry.unity
     guid: 3c297f3f7f34a440fb7a8e77a22d0928
+  - enabled: 1
+    path: Assets/Scenes/2CamExampleSceneMaterialRenderer-Android.unity
+    guid: 0a0a9f791884caf49a43fba927a7208b
   m_configObjects:
     Unity.XR.Oculus.Settings: {fileID: 11400000, guid: b090be5d6637982448afcd52055a67a9, type: 2}
     Varjo.XR.Settings: {fileID: 11400000, guid: 0075bbd24aaad854b82bd8d4e209cee3, type: 2}
