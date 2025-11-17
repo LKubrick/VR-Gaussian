@@ -5,6 +5,7 @@
     "com.microsoft.mrtk.graphicstools.unity": "file:MixedReality/com.microsoft.mrtk.graphicstools.unity-0.7.1.tgz",
     "com.tayx.graphy": "3.0.5",
     "com.unity.addressables": "1.22.3",
+    "com.unity.cinemachine": "2.10.5",
     "com.unity.cloud.gltfast": "6.7.1",
     "com.unity.cloud.ktx": "3.4.2",
     "com.unity.device-simulator.devices": "1.0.0",
