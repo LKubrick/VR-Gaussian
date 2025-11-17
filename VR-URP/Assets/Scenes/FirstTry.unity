@@ -401,7 +401,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c12d929a7f62c48adbe9ff45c9a33ff0, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  m_Asset: {fileID: 11400000, guid: 20068f78ca04530449a8e43ba984bde5, type: 2}
+  m_Asset: {fileID: 11400000, guid: dc81bc37ca53a404f9a02bf9a5a445ac, type: 2}
   m_SplatScale: 0.857
   m_OpacityScale: 0.9
   m_SHOrder: 0
@@ -436,8 +436,8 @@ Transform:
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0.9997605, w: 0.02188712}
   m_LocalPosition: {x: -1.04, y: 1.07, z: 0.41}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 1
+  m_LocalScale: {x: -1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 318120964}
   m_Father: {fileID: 0}
