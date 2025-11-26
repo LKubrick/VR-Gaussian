@@ -346,7 +346,11 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 360722833053216796, guid: bc53808da54c7ed4a8b80d6c982aa6ac, type: 3}
       propertyPath: far clip plane
-      value: 10
+      value: 1000
+      objectReference: {fileID: 0}
+    - target: {fileID: 360722833053216796, guid: bc53808da54c7ed4a8b80d6c982aa6ac, type: 3}
+      propertyPath: m_OcclusionCulling
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 1595909413345480297, guid: bc53808da54c7ed4a8b80d6c982aa6ac, type: 3}
       propertyPath: m_RequestedTrackingOriginMode
@@ -354,11 +358,23 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 2323040669517268459, guid: bc53808da54c7ed4a8b80d6c982aa6ac, type: 3}
       propertyPath: opaqueDisplay.clearMode
-      value: 2
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 2323040669517268459, guid: bc53808da54c7ed4a8b80d6c982aa6ac, type: 3}
+      propertyPath: opaqueDisplay.clearColor.b
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 2323040669517268459, guid: bc53808da54c7ed4a8b80d6c982aa6ac, type: 3}
+      propertyPath: opaqueDisplay.clearColor.g
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 2323040669517268459, guid: bc53808da54c7ed4a8b80d6c982aa6ac, type: 3}
+      propertyPath: opaqueDisplay.clearColor.r
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 2323040669517268459, guid: bc53808da54c7ed4a8b80d6c982aa6ac, type: 3}
       propertyPath: opaqueDisplay.farPlaneDistance
-      value: 10
+      value: 1000
       objectReference: {fileID: 0}
     - target: {fileID: 2323040669517268459, guid: bc53808da54c7ed4a8b80d6c982aa6ac, type: 3}
       propertyPath: opaqueDisplay.nearPlaneDistance
